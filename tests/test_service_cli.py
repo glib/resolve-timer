@@ -391,6 +391,29 @@ class ServiceCliTests(unittest.TestCase):
         self.assertIn("Best: 0:03.000 (run_custom)", stdout.getvalue())
         self.assertIn("Optimal: 0:03.000", stdout.getvalue())
 
+    def test_cli_stats_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "timer_db.yaml"
+            service = TimerService(TimerDatabase([self.course], []))
+            service.commit_new_run(
+                self.selected,
+                run_id="run_custom",
+                committed_at="2026-05-31T10:00:00Z",
+            )
+            service.save(db_path)
+
+            stdout = StringIO()
+            with patch("sys.stdout", stdout):
+                exit_code = main(["--db", str(db_path), "stats", "--course", "course", "--json"])
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["course_id"], "course")
+        self.assertEqual(payload["eligible_run_count"], 1)
+        self.assertEqual(payload["best_lap"]["run_id"], "run_custom")
+        self.assertEqual(payload["best_lap"]["seconds"], 3.0)
+        self.assertEqual([sector["sector"] for sector in payload["fastest_sectors"]], [1, 2])
+
     def test_cli_update_run_from_csv(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

@@ -11,7 +11,7 @@ from .markers import MarkerValidationError
 from .models import RawMarker
 from .overlay import format_final_overlay_text
 from .service import SelectedRunInput, TimerService
-from .stats import compute_course_stats
+from .stats import CourseStats, compute_course_stats
 from .timing import format_duration
 from .ui import format_preview_summary
 from .validation import validate_database
@@ -43,6 +43,7 @@ def main(argv: list[str] | None = None) -> int:
 
     stats = subparsers.add_parser("stats", help="Show course timing statistics")
     stats.add_argument("--course", required=True, help="Course ID")
+    stats.add_argument("--json", action="store_true", help="Print machine-readable JSON")
     stats.set_defaults(func=_cmd_stats)
 
     preview = subparsers.add_parser("preview", help="Preview timing from a marker CSV")
@@ -148,6 +149,9 @@ def _cmd_stats(args: argparse.Namespace) -> int:
     database = TimerDatabase.load(args.db)
     course = database.course_by_id(args.course)
     stats = compute_course_stats(course, database.runs)
+    if args.json:
+        print(json.dumps(_stats_to_dict(course.id, stats), indent=2, sort_keys=True))
+        return 0
     print(f"Course: {course.name}")
     print(f"Eligible runs: {len(stats.eligible_runs)}")
     if stats.best_lap:
@@ -159,6 +163,35 @@ def _cmd_stats(args: argparse.Namespace) -> int:
     else:
         print("Optimal: --:--.---")
     return 0
+
+
+def _stats_to_dict(course_id: str, stats: CourseStats) -> dict[str, object]:
+    return {
+        "course_id": course_id,
+        "eligible_run_count": len(stats.eligible_runs),
+        "best_lap": None
+        if stats.best_lap is None
+        else {
+            "run_id": stats.best_lap.run.id,
+            "seconds": stats.best_lap.timing.lap_seconds,
+            "frames": stats.best_lap.timing.lap_frames,
+        },
+        "optimal": None
+        if stats.optimal_seconds is None
+        else {
+            "seconds": stats.optimal_seconds,
+            "frames": stats.optimal_frames,
+        },
+        "fastest_sectors": [
+            {
+                "sector": sector.sector,
+                "run_id": sector.run.id,
+                "seconds": sector.duration_seconds,
+                "frames": sector.duration_frames,
+            }
+            for sector in stats.fastest_sectors
+        ],
+    }
 
 
 def _cmd_preview(args: argparse.Namespace) -> int:
