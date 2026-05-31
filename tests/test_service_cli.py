@@ -218,6 +218,19 @@ class ServiceCliTests(unittest.TestCase):
             self.assertIn("Deleted run_custom", stdout.getvalue())
             self.assertEqual(TimerDatabase.load(db_path).runs, [])
 
+    def test_cli_validate_database(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "timer_db.yaml"
+            TimerDatabase([self.course], []).save(db_path)
+
+            stdout = StringIO()
+            with patch("sys.stdout", stdout):
+                exit_code = main(["--db", str(db_path), "validate-db"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Database OK", stdout.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -9,6 +9,7 @@ from resolve_timer.database import TimerDatabase
 from resolve_timer.matching import clip_fingerprint, find_matching_run, marker_snapshot_hash
 from resolve_timer.models import Course, RunRecord
 from resolve_timer.stats import compute_course_stats
+from resolve_timer.validation import validate_database
 
 
 def run_record(
@@ -112,6 +113,42 @@ class DatabaseStatsMatchingTests(unittest.TestCase):
             "run_b",
         )
         self.assertEqual(len(marker_snapshot_hash(self.frames_a)), 16)
+
+    def test_validate_database_reports_consistency_errors(self):
+        valid = TimerDatabase([self.course], [run_record("run_a", self.frames_a)])
+        self.assertEqual(validate_database(valid), [])
+
+        invalid = TimerDatabase(
+            [self.course, Course("course", "Duplicate", 2)],
+            [
+                run_record("run_a", self.frames_a),
+                run_record("run_a", {"Start": 0, "Finish": 100}),
+                RunRecord(
+                    id="missing_course",
+                    course_id="missing",
+                    date="2026-05-31",
+                    filename="GX010124.MP4",
+                    source_fps=100.0,
+                    marker_frames=self.frames_a,
+                ),
+                RunRecord(
+                    id="bad_fps",
+                    course_id="course",
+                    date="2026-05-31",
+                    filename="GX010125.MP4",
+                    source_fps=0,
+                    marker_frames=self.frames_a,
+                ),
+            ],
+        )
+
+        errors = validate_database(invalid)
+
+        self.assertIn("duplicate course id: course", errors)
+        self.assertIn("duplicate run id: run_a", errors)
+        self.assertIn("run run_a: missing marker S1", errors)
+        self.assertIn("run missing_course references missing course missing", errors)
+        self.assertIn("run bad_fps source_fps must be greater than 0", errors)
 
 
 if __name__ == "__main__":

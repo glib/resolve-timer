@@ -9,6 +9,7 @@ from .database import TimerDatabase
 from .models import RawMarker
 from .service import SelectedRunInput, TimerService
 from .timing import format_duration
+from .validation import validate_database
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -18,6 +19,9 @@ def main(argv: list[str] | None = None) -> int:
 
     list_courses = subparsers.add_parser("courses", help="List configured courses")
     list_courses.set_defaults(func=_cmd_courses)
+
+    validate = subparsers.add_parser("validate-db", help="Validate database consistency")
+    validate.set_defaults(func=_cmd_validate_db)
 
     list_runs = subparsers.add_parser("runs", help="List committed run records")
     list_runs.add_argument("--course", help="Only show runs for this course ID")
@@ -67,6 +71,17 @@ def _cmd_courses(args: argparse.Namespace) -> int:
     for course in database.courses:
         print(f"{course.id}\t{course.name}\t{course.sector_count} sectors")
     return 0
+
+
+def _cmd_validate_db(args: argparse.Namespace) -> int:
+    database = TimerDatabase.load(args.db)
+    errors = validate_database(database)
+    if not errors:
+        print("Database OK")
+        return 0
+    for error in errors:
+        print(error)
+    return 1
 
 
 def _cmd_runs(args: argparse.Namespace) -> int:
