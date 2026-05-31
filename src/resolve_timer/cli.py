@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 from pathlib import Path
 
 from .database import TimerDatabase
@@ -26,6 +27,11 @@ def main(argv: list[str] | None = None) -> int:
     _add_selected_args(commit)
     commit.add_argument("--run-id")
     commit.set_defaults(func=_cmd_commit)
+
+    overlay = subparsers.add_parser("overlay-payload", help="Print overlay payload JSON from a marker CSV")
+    _add_selected_args(overlay)
+    overlay.add_argument("--mode", choices=["best_lap", "optimal"], default="best_lap")
+    overlay.set_defaults(func=_cmd_overlay_payload)
 
     args = parser.parse_args(argv)
     return args.func(args)
@@ -72,6 +78,13 @@ def _cmd_commit(args: argparse.Namespace) -> int:
     run = service.commit_new_run(_selected_from_args(args), run_id=args.run_id)
     service.save(args.db)
     print(f"Committed {run.id}")
+    return 0
+
+
+def _cmd_overlay_payload(args: argparse.Namespace) -> int:
+    service = TimerService.load(args.db)
+    payload = service.overlay_payload(_selected_from_args(args), comparison_mode=args.mode)
+    print(json.dumps(payload.to_dict(), indent=2, sort_keys=True))
     return 0
 
 

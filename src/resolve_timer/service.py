@@ -8,6 +8,7 @@ from .database import TimerDatabase
 from .markers import parse_marker_snapshot
 from .matching import clip_fingerprint, find_matching_run
 from .models import Course, MarkerSnapshot, RawMarker, RunRecord, TimingResult, utc_timestamp
+from .overlay import OverlayPayload, build_overlay_payload
 from .stats import CourseStats, compute_course_stats
 from .timing import compute_timing
 
@@ -143,6 +144,26 @@ class TimerService:
         if len(self.database.runs) == before:
             raise ValueError(f"run not found: {run_id}")
 
+    def overlay_payload(
+        self,
+        selected: SelectedRunInput,
+        *,
+        comparison_mode: str = "best_lap",
+    ) -> OverlayPayload:
+        preview = self.preview(selected)
+        references = _references_for_mode(preview, comparison_mode)
+        return build_overlay_payload(
+            course=preview.course,
+            snapshot=preview.snapshot,
+            current_timing=preview.timing,
+            comparison_mode=references.mode,
+            run_id=preview.matching_run.id if preview.matching_run else None,
+            source_fps=selected.source_fps,
+            sector_reference_seconds=references.sector_seconds,
+            best_lap_seconds=preview.best_lap_references.lap_seconds,
+            optimal_lap_seconds=preview.optimal_references.lap_seconds,
+        )
+
 
 def _best_lap_references(course: Course, stats: CourseStats) -> ComparisonReferences:
     if stats.best_lap is None:
@@ -161,6 +182,14 @@ def _optimal_references(course: Course, stats: CourseStats) -> ComparisonReferen
         tuple(by_sector.get(sector) for sector in range(1, course.sector_count + 1)),
         stats.optimal_seconds,
     )
+
+
+def _references_for_mode(preview: RunPreview, comparison_mode: str) -> ComparisonReferences:
+    if comparison_mode == "best_lap":
+        return preview.best_lap_references
+    if comparison_mode == "optimal":
+        return preview.optimal_references
+    raise ValueError("comparison_mode must be best_lap or optimal")
 
 
 def _next_run_id(runs: list[RunRecord], run_date: str) -> str:

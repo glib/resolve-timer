@@ -28,3 +28,13 @@ python -m unittest discover -s tests
 ```
 
 `PyYAML` is required for YAML read/write.
+
+## CLI Smoke Tests
+
+```powershell
+resolve-timer --db examples/timer_db.yaml courses
+resolve-timer --db examples/timer_db.yaml preview --course lower_whistler_a_line --markers markers.csv --filename GX010123.MP4 --fps 59.94
+resolve-timer --db examples/timer_db.yaml overlay-payload --course lower_whistler_a_line --markers markers.csv --filename GX010123.MP4 --fps 59.94 --mode best_lap
+```
+
+Marker CSV files need `name,frame` columns.

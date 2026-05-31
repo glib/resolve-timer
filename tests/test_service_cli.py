@@ -1,4 +1,5 @@
 import csv
+import json
 import tempfile
 import sys
 import unittest
@@ -49,6 +50,13 @@ class ServiceCliTests(unittest.TestCase):
         self.assertEqual(preview.matching_run.id, "run_custom")
         self.assertFalse(preview.has_marker_changes)
         self.assertEqual(preview.best_lap_references.lap_seconds, 3.0)
+
+        payload = service.overlay_payload(self.selected)
+        self.assertEqual(payload.run_id, "run_custom")
+        self.assertEqual(payload.comparison_mode, "best_lap")
+        self.assertEqual(payload.start_frame, 0)
+        self.assertEqual(payload.finish_frame, 300)
+        self.assertEqual(payload.sector_reference_seconds, (1.0, 2.0))
 
         changed = SelectedRunInput(
             course_id="course",
@@ -126,6 +134,50 @@ class ServiceCliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("Lap: 0:03.000", stdout.getvalue())
         self.assertIn("History: no committed run", stdout.getvalue())
+
+    def test_cli_overlay_payload_from_csv(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "timer_db.yaml"
+            marker_path = tmp_path / "markers.csv"
+            TimerDatabase([self.course], []).save(db_path)
+            with marker_path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=["name", "frame"])
+                writer.writeheader()
+                writer.writerows(
+                    [
+                        {"name": "Start", "frame": "0"},
+                        {"name": "S1", "frame": "100"},
+                        {"name": "Finish", "frame": "300"},
+                    ]
+                )
+
+            stdout = StringIO()
+            with patch("sys.stdout", stdout):
+                exit_code = main(
+                    [
+                        "--db",
+                        str(db_path),
+                        "overlay-payload",
+                        "--course",
+                        "course",
+                        "--markers",
+                        str(marker_path),
+                        "--filename",
+                        "GX010123.MP4",
+                        "--fps",
+                        "100",
+                        "--mode",
+                        "optimal",
+                    ]
+                )
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["course_id"], "course")
+        self.assertEqual(payload["comparison_mode"], "optimal")
+        self.assertEqual(payload["marker_frames"]["Finish"], 300)
+        self.assertEqual(payload["sector_reference_seconds"], [None, None])
 
 
 if __name__ == "__main__":

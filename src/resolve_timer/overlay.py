@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from dataclasses import dataclass
 
 from .models import Course, MarkerSnapshot, TimingResult
@@ -18,6 +19,9 @@ class OverlayPayload:
     optimal_lap_seconds: float | None
     comparison_mode: str
 
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
 
 def build_overlay_payload(
     *,
@@ -33,6 +37,10 @@ def build_overlay_payload(
 ) -> OverlayPayload:
     if comparison_mode not in {"best_lap", "optimal"}:
         raise ValueError("comparison_mode must be best_lap or optimal")
+    if len(sector_reference_seconds) != course.sector_count:
+        raise ValueError("sector_reference_seconds length must match course sector_count")
+    if current_timing.lap_frames != snapshot.frames["Finish"] - snapshot.frames["Start"]:
+        raise ValueError("current_timing does not match marker snapshot")
     return OverlayPayload(
         course_id=course.id,
         run_id=run_id,
