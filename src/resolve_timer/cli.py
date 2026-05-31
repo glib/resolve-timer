@@ -8,7 +8,7 @@ from pathlib import Path
 from .database import TimerDatabase
 from .models import RawMarker
 from .service import SelectedRunInput, TimerService
-from .timing import format_delta, format_duration
+from .ui import format_preview_summary
 from .validation import validate_database
 
 
@@ -119,18 +119,7 @@ def _cmd_preview(args: argparse.Namespace) -> int:
     service = TimerService.load(args.db)
     selected = _selected_from_args(args)
     preview = service.preview(selected)
-    print(f"Course: {preview.course.name}")
-    for row in preview.comparison_rows(args.mode):
-        print(_format_comparison_row(row.label, row.duration_seconds, row.delta_seconds))
-    if preview.stats.best_lap:
-        print(f"Best: {format_duration(preview.stats.best_lap.timing.lap_seconds)}")
-    if preview.stats.optimal_seconds is not None:
-        print(f"Optimal: {format_duration(preview.stats.optimal_seconds)}")
-    if preview.matching_run:
-        state = "changed" if preview.has_marker_changes else "matched"
-        print(f"History: {state} {preview.matching_run.id}")
-    else:
-        print("History: no committed run")
+    print(format_preview_summary(preview, args.mode))
     return 0
 
 
@@ -207,12 +196,6 @@ def _run_flags(committed: bool, ignored: bool) -> str:
     if ignored:
         flags.append("ignored")
     return ",".join(flags)
-
-
-def _format_comparison_row(label: str, duration_seconds: float, delta_seconds: float | None) -> str:
-    if delta_seconds is None:
-        return f"{label}: {format_duration(duration_seconds)}"
-    return f"{label}: {format_duration(duration_seconds)} ({format_delta(delta_seconds)})"
 
 
 if __name__ == "__main__":
