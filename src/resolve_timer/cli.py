@@ -235,12 +235,23 @@ def _selected_from_args(args: argparse.Namespace) -> SelectedRunInput:
 
 
 def _read_marker_csv(path: str | Path) -> list[RawMarker]:
-    with Path(path).open("r", newline="", encoding="utf-8") as handle:
+    csv_path = Path(path)
+    with csv_path.open("r", newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
         missing = {"name", "frame"} - set(reader.fieldnames or [])
         if missing:
             raise ValueError(f"marker CSV missing columns: {', '.join(sorted(missing))}")
-        return [RawMarker(row["name"], int(row["frame"])) for row in reader]
+        markers: list[RawMarker] = []
+        for row_number, row in enumerate(reader, start=2):
+            name = (row["name"] or "").strip()
+            if not name:
+                raise ValueError(f"{csv_path}: row {row_number} missing marker name")
+            try:
+                frame = int(row["frame"])
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{csv_path}: row {row_number} invalid frame {row['frame']!r}") from exc
+            markers.append(RawMarker(name, frame))
+        return markers
 
 
 def _run_flags(committed: bool, ignored: bool) -> str:

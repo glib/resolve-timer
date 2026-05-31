@@ -216,6 +216,38 @@ class ServiceCliTests(unittest.TestCase):
         self.assertIn("Error: missing marker S1", stderr.getvalue())
         self.assertNotIn("Traceback", stderr.getvalue())
 
+    def test_cli_reports_bad_marker_csv_frame_with_row_number(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "timer_db.yaml"
+            marker_path = tmp_path / "markers.csv"
+            TimerDatabase([self.course], []).save(db_path)
+            with marker_path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=["name", "frame"])
+                writer.writeheader()
+                writer.writerow({"name": "Start", "frame": "abc"})
+
+            stderr = StringIO()
+            with patch("sys.stderr", stderr):
+                exit_code = main(
+                    [
+                        "--db",
+                        str(db_path),
+                        "preview",
+                        "--course",
+                        "course",
+                        "--markers",
+                        str(marker_path),
+                        "--filename",
+                        "GX010123.MP4",
+                        "--fps",
+                        "100",
+                    ]
+                )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("row 2 invalid frame 'abc'", stderr.getvalue())
+
     def test_cli_overlay_payload_from_csv(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
