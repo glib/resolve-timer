@@ -3,9 +3,11 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import sys
 from pathlib import Path
 
-from .database import TimerDatabase
+from .database import DatabaseError, TimerDatabase
+from .markers import MarkerValidationError
 from .models import RawMarker
 from .overlay import format_final_overlay_text
 from .service import SelectedRunInput, TimerService
@@ -81,7 +83,11 @@ def main(argv: list[str] | None = None) -> int:
     delete.set_defaults(func=_cmd_delete_run)
 
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except (DatabaseError, MarkerValidationError, ValueError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
 
 
 def _add_selected_args(parser: argparse.ArgumentParser) -> None:
