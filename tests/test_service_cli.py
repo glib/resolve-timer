@@ -179,6 +179,45 @@ class ServiceCliTests(unittest.TestCase):
         self.assertEqual(payload["marker_frames"]["Finish"], 300)
         self.assertEqual(payload["sector_reference_seconds"], [None, None])
 
+    def test_cli_run_management_commands(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "timer_db.yaml"
+            service = TimerService(TimerDatabase([self.course], []))
+            service.commit_new_run(
+                self.selected,
+                run_id="run_custom",
+                committed_at="2026-05-31T10:00:00Z",
+            )
+            service.save(db_path)
+
+            stdout = StringIO()
+            with patch("sys.stdout", stdout):
+                exit_code = main(["--db", str(db_path), "runs", "--course", "course"])
+            self.assertEqual(exit_code, 0)
+            self.assertIn("run_custom\tcourse\t2026-05-31\tcommitted\tGX010123.MP4", stdout.getvalue())
+
+            stdout = StringIO()
+            with patch("sys.stdout", stdout):
+                exit_code = main(["--db", str(db_path), "ignore-run", "run_custom"])
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Ignored run_custom", stdout.getvalue())
+            self.assertTrue(TimerDatabase.load(db_path).runs[0].ignored)
+
+            stdout = StringIO()
+            with patch("sys.stdout", stdout):
+                exit_code = main(["--db", str(db_path), "unignore-run", "run_custom"])
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Unignored run_custom", stdout.getvalue())
+            self.assertFalse(TimerDatabase.load(db_path).runs[0].ignored)
+
+            stdout = StringIO()
+            with patch("sys.stdout", stdout):
+                exit_code = main(["--db", str(db_path), "delete-run", "run_custom"])
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Deleted run_custom", stdout.getvalue())
+            self.assertEqual(TimerDatabase.load(db_path).runs, [])
+
 
 if __name__ == "__main__":
     unittest.main()
