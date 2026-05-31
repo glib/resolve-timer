@@ -96,6 +96,15 @@ class TimerService:
         self.database.courses.append(course)
         return course
 
+    def normalize_fingerprints(self) -> int:
+        updated = 0
+        for run in self.database.runs:
+            fingerprint = clip_fingerprint(run.filename, run.marker_frames)
+            if run.fingerprint != fingerprint:
+                run.fingerprint = fingerprint
+                updated += 1
+        return updated
+
     def preview(self, selected: SelectedRunInput) -> RunPreview:
         course = self.database.course_by_id(selected.course_id)
         snapshot = parse_marker_snapshot(list(selected.markers), course)

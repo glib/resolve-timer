@@ -32,6 +32,9 @@ def main(argv: list[str] | None = None) -> int:
     validate = subparsers.add_parser("validate-db", help="Validate database consistency")
     validate.set_defaults(func=_cmd_validate_db)
 
+    normalize = subparsers.add_parser("normalize-db", help="Fill derived fields in the database")
+    normalize.set_defaults(func=_cmd_normalize_db)
+
     list_runs = subparsers.add_parser("runs", help="List committed run records")
     list_runs.add_argument("--course", help="Only show runs for this course ID")
     list_runs.set_defaults(func=_cmd_runs)
@@ -114,6 +117,14 @@ def _cmd_validate_db(args: argparse.Namespace) -> int:
     for error in errors:
         print(error)
     return 1
+
+
+def _cmd_normalize_db(args: argparse.Namespace) -> int:
+    service = TimerService.load(args.db)
+    count = service.normalize_fingerprints()
+    service.save(args.db)
+    print(f"Updated {count} run fingerprints")
+    return 0
 
 
 def _cmd_runs(args: argparse.Namespace) -> int:

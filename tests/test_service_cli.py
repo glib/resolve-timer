@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from resolve_timer.cli import main
 from resolve_timer.database import TimerDatabase
+from resolve_timer.matching import clip_fingerprint
 from resolve_timer.models import Course, RawMarker
 from resolve_timer.service import SelectedRunInput, TimerService
 import resolve_timer
@@ -109,6 +110,20 @@ class ServiceCliTests(unittest.TestCase):
         self.assertEqual(added.sector_count, 3)
         with self.assertRaises(ValueError):
             service.add_course("new_course", "Duplicate", 3)
+
+    def test_normalize_fingerprints_updates_missing_or_stale_values(self):
+        service = TimerService(TimerDatabase([self.course], []))
+        run = service.commit_new_run(
+            self.selected,
+            run_id="run_custom",
+            committed_at="2026-05-31T10:00:00Z",
+        )
+        run.fingerprint = None
+
+        count = service.normalize_fingerprints()
+
+        self.assertEqual(count, 1)
+        self.assertEqual(run.fingerprint, clip_fingerprint(run.filename, run.marker_frames))
 
     def test_package_exports_service_helpers(self):
         self.assertIs(resolve_timer.TimerService, TimerService)
@@ -367,6 +382,31 @@ class ServiceCliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn("Database OK", stdout.getvalue())
+
+    def test_cli_normalize_database(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "timer_db.yaml"
+            service = TimerService(TimerDatabase([self.course], []))
+            run = service.commit_new_run(
+                self.selected,
+                run_id="run_custom",
+                committed_at="2026-05-31T10:00:00Z",
+            )
+            run.fingerprint = None
+            service.save(db_path)
+
+            stdout = StringIO()
+            with patch("sys.stdout", stdout):
+                exit_code = main(["--db", str(db_path), "normalize-db"])
+
+            loaded = TimerDatabase.load(db_path)
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Updated 1 run fingerprints", stdout.getvalue())
+        self.assertEqual(
+            loaded.runs[0].fingerprint,
+            clip_fingerprint("GX010123.MP4", loaded.runs[0].marker_frames),
+        )
 
     def test_cli_add_course(self):
         with tempfile.TemporaryDirectory() as tmp:
