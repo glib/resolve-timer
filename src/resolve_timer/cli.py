@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .database import TimerDatabase
 from .models import RawMarker
+from .overlay import format_final_overlay_text
 from .service import SelectedRunInput, TimerService
 from .ui import format_preview_summary
 from .validation import validate_database
@@ -52,6 +53,11 @@ def main(argv: list[str] | None = None) -> int:
     _add_selected_args(overlay)
     overlay.add_argument("--mode", choices=["best_lap", "optimal"], default="best_lap")
     overlay.set_defaults(func=_cmd_overlay_payload)
+
+    overlay_text = subparsers.add_parser("overlay-text", help="Print final overlay text preview")
+    _add_selected_args(overlay_text)
+    overlay_text.add_argument("--mode", choices=["best_lap", "optimal"], default="best_lap")
+    overlay_text.set_defaults(func=_cmd_overlay_text)
 
     ignore = subparsers.add_parser("ignore-run", help="Exclude a run from stats/comparisons")
     ignore.add_argument("run_id")
@@ -143,6 +149,13 @@ def _cmd_overlay_payload(args: argparse.Namespace) -> int:
     service = TimerService.load(args.db)
     payload = service.overlay_payload(_selected_from_args(args), comparison_mode=args.mode)
     print(json.dumps(payload.to_dict(), indent=2, sort_keys=True))
+    return 0
+
+
+def _cmd_overlay_text(args: argparse.Namespace) -> int:
+    service = TimerService.load(args.db)
+    payload = service.overlay_payload(_selected_from_args(args), comparison_mode=args.mode)
+    print(format_final_overlay_text(payload))
     return 0
 
 
