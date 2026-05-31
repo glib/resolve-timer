@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from resolve_timer.database import TimerDatabase
 from resolve_timer.matching import clip_fingerprint, find_matching_run, marker_snapshot_hash
-from resolve_timer.models import Course, RunRecord
+from resolve_timer.models import Course, RunRecord, utc_timestamp
 from resolve_timer.stats import compute_course_stats
 from resolve_timer.validation import validate_database
 
@@ -149,6 +149,12 @@ class DatabaseStatsMatchingTests(unittest.TestCase):
         self.assertIn("run run_a: missing marker S1", errors)
         self.assertIn("run missing_course references missing course missing", errors)
         self.assertIn("run bad_fps source_fps must be greater than 0", errors)
+
+    def test_utc_timestamp_uses_z_suffix(self):
+        timestamp = utc_timestamp()
+
+        self.assertTrue(timestamp.endswith("Z"))
+        self.assertNotIn("+00:00", timestamp)
 
 
 if __name__ == "__main__":
