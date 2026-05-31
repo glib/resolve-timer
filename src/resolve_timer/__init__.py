@@ -3,7 +3,8 @@
 from .models import Course, RawMarker, RunRecord
 from .markers import MarkerValidationError, parse_marker_snapshot
 from .timing import compute_timing, format_delta, format_duration
-from .service import RunPreview, SelectedRunInput, TimerService
+from .service import ComparisonReferences, ComparisonRow, RunPreview, SelectedRunInput, TimerService
+from .validation import validate_database
 
 __all__ = [
     "Course",
@@ -14,7 +15,10 @@ __all__ = [
     "compute_timing",
     "format_delta",
     "format_duration",
+    "ComparisonReferences",
+    "ComparisonRow",
     "RunPreview",
     "SelectedRunInput",
     "TimerService",
+    "validate_database",
 ]

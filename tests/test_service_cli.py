@@ -13,6 +13,7 @@ from resolve_timer.cli import main
 from resolve_timer.database import TimerDatabase
 from resolve_timer.models import Course, RawMarker
 from resolve_timer.service import SelectedRunInput, TimerService
+import resolve_timer
 
 
 class ServiceCliTests(unittest.TestCase):
@@ -108,6 +109,11 @@ class ServiceCliTests(unittest.TestCase):
         self.assertEqual(added.sector_count, 3)
         with self.assertRaises(ValueError):
             service.add_course("new_course", "Duplicate", 3)
+
+    def test_package_exports_service_helpers(self):
+        self.assertIs(resolve_timer.TimerService, TimerService)
+        self.assertTrue(hasattr(resolve_timer, "ComparisonRow"))
+        self.assertTrue(hasattr(resolve_timer, "validate_database"))
 
     def test_cli_preview_from_csv(self):
         with tempfile.TemporaryDirectory() as tmp:
