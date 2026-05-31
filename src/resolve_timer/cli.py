@@ -20,6 +20,12 @@ def main(argv: list[str] | None = None) -> int:
     list_courses = subparsers.add_parser("courses", help="List configured courses")
     list_courses.set_defaults(func=_cmd_courses)
 
+    add_course = subparsers.add_parser("add-course", help="Add a course to the database")
+    add_course.add_argument("--id", required=True, dest="course_id")
+    add_course.add_argument("--name", required=True)
+    add_course.add_argument("--sectors", required=True, type=int)
+    add_course.set_defaults(func=_cmd_add_course)
+
     validate = subparsers.add_parser("validate-db", help="Validate database consistency")
     validate.set_defaults(func=_cmd_validate_db)
 
@@ -71,6 +77,14 @@ def _cmd_courses(args: argparse.Namespace) -> int:
     database = TimerDatabase.load(args.db)
     for course in database.courses:
         print(f"{course.id}\t{course.name}\t{course.sector_count} sectors")
+    return 0
+
+
+def _cmd_add_course(args: argparse.Namespace) -> int:
+    service = TimerService.load(args.db)
+    course = service.add_course(args.course_id, args.name, args.sectors)
+    service.save(args.db)
+    print(f"Added course {course.id}")
     return 0
 
 

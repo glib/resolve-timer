@@ -86,6 +86,16 @@ class TimerService:
     def save(self, path: str | Path) -> None:
         self.database.save(path)
 
+    def add_course(self, course_id: str, name: str, sector_count: int) -> Course:
+        if sector_count < 1:
+            raise ValueError("sector_count must be at least 1")
+        for existing in self.database.courses:
+            if existing.id == course_id:
+                raise ValueError(f"course already exists: {course_id}")
+        course = Course(course_id, name, sector_count)
+        self.database.courses.append(course)
+        return course
+
     def preview(self, selected: SelectedRunInput) -> RunPreview:
         course = self.database.course_by_id(selected.course_id)
         snapshot = parse_marker_snapshot(list(selected.markers), course)

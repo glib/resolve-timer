@@ -100,6 +100,15 @@ class ServiceCliTests(unittest.TestCase):
         self.assertEqual(first.id, "run_2026_05_31_001")
         self.assertEqual(second.id, "run_2026_05_31_002")
 
+    def test_add_course_rejects_duplicate_ids(self):
+        service = TimerService(TimerDatabase([self.course], []))
+
+        added = service.add_course("new_course", "New Course", 3)
+
+        self.assertEqual(added.sector_count, 3)
+        with self.assertRaises(ValueError):
+            service.add_course("new_course", "Duplicate", 3)
+
     def test_cli_preview_from_csv(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -243,6 +252,32 @@ class ServiceCliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn("Database OK", stdout.getvalue())
+
+    def test_cli_add_course(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "timer_db.yaml"
+
+            stdout = StringIO()
+            with patch("sys.stdout", stdout):
+                exit_code = main(
+                    [
+                        "--db",
+                        str(db_path),
+                        "add-course",
+                        "--id",
+                        "new_course",
+                        "--name",
+                        "New Course",
+                        "--sectors",
+                        "3",
+                    ]
+                )
+
+            loaded = TimerDatabase.load(db_path)
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Added course new_course", stdout.getvalue())
+        self.assertEqual(loaded.courses[0], Course("new_course", "New Course", 3))
 
 
 if __name__ == "__main__":
