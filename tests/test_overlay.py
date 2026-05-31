@@ -37,6 +37,9 @@ class OverlayTests(unittest.TestCase):
 
         self.assertEqual(generated_overlay_name(payload), "Resolve Timer - course - run_custom")
         self.assertEqual(payload.to_dict()["generated_name"], "Resolve Timer - course - run_custom")
+        self.assertIn("final_text", payload.to_dict())
+        self.assertEqual(payload.to_dict()["rows"][-1]["label"], "LAP")
+        self.assertEqual(payload.to_dict()["rows"][-1]["duration"], "0:03.000")
 
     def test_generated_overlay_name_falls_back_to_marker_hash(self):
         course = Course("course", "Course", 2)

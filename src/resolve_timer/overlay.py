@@ -24,6 +24,17 @@ class OverlayPayload:
     def to_dict(self) -> dict[str, object]:
         data = asdict(self)
         data["generated_name"] = generated_overlay_name(self)
+        data["final_text"] = format_final_overlay_text(self)
+        data["rows"] = [
+            {
+                "label": row.label,
+                "seconds": row.duration_seconds,
+                "duration": format_duration(row.duration_seconds),
+                "delta_seconds": row.delta_seconds,
+                "delta": None if row.delta_seconds is None else format_delta(row.delta_seconds),
+            }
+            for row in final_overlay_rows(self)
+        ]
         return data
 
 
