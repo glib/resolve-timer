@@ -285,6 +285,27 @@ class ServiceCliTests(unittest.TestCase):
             self.assertIn("Deleted run_custom", stdout.getvalue())
             self.assertEqual(TimerDatabase.load(db_path).runs, [])
 
+    def test_cli_stats(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "timer_db.yaml"
+            service = TimerService(TimerDatabase([self.course], []))
+            service.commit_new_run(
+                self.selected,
+                run_id="run_custom",
+                committed_at="2026-05-31T10:00:00Z",
+            )
+            service.save(db_path)
+
+            stdout = StringIO()
+            with patch("sys.stdout", stdout):
+                exit_code = main(["--db", str(db_path), "stats", "--course", "course"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Course: Course", stdout.getvalue())
+        self.assertIn("Eligible runs: 1", stdout.getvalue())
+        self.assertIn("Best: 0:03.000 (run_custom)", stdout.getvalue())
+        self.assertIn("Optimal: 0:03.000", stdout.getvalue())
+
     def test_cli_update_run_from_csv(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

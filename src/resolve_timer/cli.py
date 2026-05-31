@@ -9,6 +9,8 @@ from .database import TimerDatabase
 from .models import RawMarker
 from .overlay import format_final_overlay_text
 from .service import SelectedRunInput, TimerService
+from .stats import compute_course_stats
+from .timing import format_duration
 from .ui import format_preview_summary
 from .validation import validate_database
 
@@ -33,6 +35,10 @@ def main(argv: list[str] | None = None) -> int:
     list_runs = subparsers.add_parser("runs", help="List committed run records")
     list_runs.add_argument("--course", help="Only show runs for this course ID")
     list_runs.set_defaults(func=_cmd_runs)
+
+    stats = subparsers.add_parser("stats", help="Show course timing statistics")
+    stats.add_argument("--course", required=True, help="Course ID")
+    stats.set_defaults(func=_cmd_stats)
 
     preview = subparsers.add_parser("preview", help="Preview timing from a marker CSV")
     _add_selected_args(preview)
@@ -118,6 +124,23 @@ def _cmd_runs(args: argparse.Namespace) -> int:
     for run in sorted(runs, key=lambda item: (item.course_id, item.date, item.id)):
         flags = _run_flags(run.committed, run.ignored)
         print(f"{run.id}\t{run.course_id}\t{run.date}\t{flags}\t{run.filename}")
+    return 0
+
+
+def _cmd_stats(args: argparse.Namespace) -> int:
+    database = TimerDatabase.load(args.db)
+    course = database.course_by_id(args.course)
+    stats = compute_course_stats(course, database.runs)
+    print(f"Course: {course.name}")
+    print(f"Eligible runs: {len(stats.eligible_runs)}")
+    if stats.best_lap:
+        print(f"Best: {format_duration(stats.best_lap.timing.lap_seconds)} ({stats.best_lap.run.id})")
+    else:
+        print("Best: --:--.---")
+    if stats.optimal_seconds is not None:
+        print(f"Optimal: {format_duration(stats.optimal_seconds)}")
+    else:
+        print("Optimal: --:--.---")
     return 0
 
 
