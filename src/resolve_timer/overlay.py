@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from dataclasses import dataclass
 
+from .matching import marker_snapshot_hash
 from .models import Course, MarkerSnapshot, TimingResult
 
 
@@ -20,7 +21,14 @@ class OverlayPayload:
     comparison_mode: str
 
     def to_dict(self) -> dict[str, object]:
-        return asdict(self)
+        data = asdict(self)
+        data["generated_name"] = generated_overlay_name(self)
+        return data
+
+
+def generated_overlay_name(payload: OverlayPayload) -> str:
+    identity = payload.run_id or marker_snapshot_hash(payload.marker_frames)
+    return f"{FusionOverlayUpdater.generated_name_prefix} - {payload.course_id} - {identity}"
 
 
 def build_overlay_payload(
