@@ -10,7 +10,7 @@ from .database import DatabaseError, TimerDatabase
 from .markers import MarkerValidationError
 from .models import RawMarker
 from .overlay import format_final_overlay_text
-from .service import SelectedRunInput, TimerService
+from .service import RunPreview, SelectedRunInput, TimerService
 from .stats import CourseStats, compute_course_stats
 from .timing import format_duration
 from .ui import format_preview_summary
@@ -49,6 +49,7 @@ def main(argv: list[str] | None = None) -> int:
     preview = subparsers.add_parser("preview", help="Preview timing from a marker CSV")
     _add_selected_args(preview)
     preview.add_argument("--mode", choices=["best_lap", "optimal"], default="best_lap")
+    preview.add_argument("--json", action="store_true", help="Print machine-readable JSON")
     preview.set_defaults(func=_cmd_preview)
 
     commit = subparsers.add_parser("commit", help="Commit a new run from a marker CSV")
@@ -198,6 +199,9 @@ def _cmd_preview(args: argparse.Namespace) -> int:
     service = TimerService.load(args.db)
     selected = _selected_from_args(args)
     preview = service.preview(selected)
+    if args.json:
+        print(json.dumps(_preview_to_dict(preview, args.mode), indent=2, sort_keys=True))
+        return 0
     print(format_preview_summary(preview, args.mode))
     return 0
 
@@ -208,6 +212,26 @@ def _cmd_commit(args: argparse.Namespace) -> int:
     service.save(args.db)
     print(f"Committed {run.id}")
     return 0
+
+
+def _preview_to_dict(preview: RunPreview, comparison_mode: str) -> dict[str, object]:
+    return {
+        "course": preview.course.to_dict(),
+        "comparison_mode": comparison_mode,
+        "rows": [
+            {
+                "label": row.label,
+                "seconds": row.duration_seconds,
+                "reference_seconds": row.reference_seconds,
+                "delta_seconds": row.delta_seconds,
+            }
+            for row in preview.comparison_rows(comparison_mode)
+        ],
+        "matching_run_id": None if preview.matching_run is None else preview.matching_run.id,
+        "has_marker_changes": preview.has_marker_changes,
+        "best_lap_seconds": preview.best_lap_references.lap_seconds,
+        "optimal_seconds": preview.optimal_references.lap_seconds,
+    }
 
 
 def _cmd_update_run(args: argparse.Namespace) -> int:
