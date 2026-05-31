@@ -35,13 +35,15 @@ class TimerDatabase:
     def save(self, path: str | Path) -> None:
         db_path = Path(path)
         db_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = db_path.with_name(f"{db_path.name}.tmp")
         data: dict[str, Any] = {
             "schema_version": SCHEMA_VERSION,
             "courses": [course.to_dict() for course in self.courses],
             "runs": [run.to_dict() for run in self.runs],
         }
-        with db_path.open("w", encoding="utf-8") as handle:
+        with tmp_path.open("w", encoding="utf-8") as handle:
             yaml.safe_dump(data, handle, sort_keys=False)
+        tmp_path.replace(db_path)
 
     def course_by_id(self, course_id: str) -> Course:
         for course in self.courses:

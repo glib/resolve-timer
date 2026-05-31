@@ -56,6 +56,16 @@ class DatabaseStatsMatchingTests(unittest.TestCase):
         self.assertEqual(loaded.runs[0].marker_frames, self.frames_a)
         self.assertEqual(loaded.runs[0].fingerprint, clip_fingerprint("GX010123.MP4", self.frames_a))
 
+    def test_database_save_replaces_target_without_leaving_temp_file(self):
+        db = TimerDatabase([self.course], [run_record("run_a", self.frames_a)])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "timer_db.yaml"
+            db.save(path)
+
+            self.assertTrue(path.exists())
+            self.assertFalse((Path(tmp) / "timer_db.yaml.tmp").exists())
+
     def test_stats_use_only_committed_non_ignored_valid_runs(self):
         runs = [
             run_record("run_a", self.frames_a, committed_at="2026-05-31T10:00:00Z"),
