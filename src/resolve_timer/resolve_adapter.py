@@ -31,8 +31,30 @@ class ResolveAdapter:
         self.resolve = resolve or self._discover_resolve()
 
     def selected_timeline_run(self) -> SelectedTimelineRun:
-        raise NotImplementedError(
-            "Selected timeline item to source marker access must be validated in Resolve"
+        project_manager = _call_required(self.resolve, "GetProjectManager")
+        project = _call_required(project_manager, "GetCurrentProject")
+        timeline = _call_required(project, "GetCurrentTimeline")
+        timeline_item = _call_required(timeline, "GetCurrentVideoItem")
+        source_clip = _call_required(timeline_item, "GetMediaPoolItem")
+        marker_map = _call_required(source_clip, "GetMarkers")
+        properties = _call_required(source_clip, "GetClipProperty")
+        if not isinstance(marker_map, dict):
+            raise ResolveAdapterError("source clip markers are not a dictionary")
+        if not isinstance(properties, dict):
+            raise ResolveAdapterError("source clip properties are not a dictionary")
+        filename = _first_property(properties, ("File Name", "Filename", "Name"))
+        if filename is None:
+            filename = str(_call_optional(timeline_item, "GetName") or "")
+        if not filename:
+            raise ResolveAdapterError("source clip filename property not found")
+        clip_id = _optional_text(_call_optional(source_clip, "GetUniqueId"))
+        return SelectedTimelineRun(
+            timeline_item=timeline_item,
+            source_clip=source_clip,
+            filename=filename,
+            source_fps=self.source_fps_from_properties(properties),
+            source_markers=self.markers_from_resolve_map(marker_map),
+            clip_id=clip_id,
         )
 
     @staticmethod
@@ -104,3 +126,34 @@ def _parse_fps(value: Any) -> float:
     if fps <= 0:
         raise ResolveAdapterError(f"invalid FPS value: {value!r}")
     return fps
+
+
+def _call_required(target: object, method_name: str) -> Any:
+    method = getattr(target, method_name, None)
+    if not callable(method):
+        raise ResolveAdapterError(f"Resolve object is missing {method_name}")
+    value = method()
+    if value is None:
+        raise ResolveAdapterError(f"Resolve {method_name} returned nothing")
+    return value
+
+
+def _call_optional(target: object, method_name: str) -> Any:
+    method = getattr(target, method_name, None)
+    if not callable(method):
+        return None
+    return method()
+
+
+def _first_property(properties: dict[str, Any], keys: tuple[str, ...]) -> str | None:
+    for key in keys:
+        value = properties.get(key)
+        if value not in (None, ""):
+            return str(value)
+    return None
+
+
+def _optional_text(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    return str(value)
