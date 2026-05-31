@@ -3,4 +3,17 @@ courses:
   - id: lower_whistler_a_line
     name: Lower Whistler A-Line
     sector_count: 4
-runs: []
+runs:
+  - id: run_2026_05_31_001
+    course_id: lower_whistler_a_line
+    date: '2026-05-31'
+    filename: GX010123.MP4
+    source_fps: 59.94
+    committed: true
+    ignored: false
+    marker_frames:
+      Finish: 700
+      S1: 220
+      S2: 360
+      S3: 515
+      Start: 100
