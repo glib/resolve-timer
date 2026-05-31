@@ -6,7 +6,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from resolve_timer.markers import parse_marker_snapshot
 from resolve_timer.models import Course, RawMarker
-from resolve_timer.overlay import build_overlay_payload, generated_overlay_name
+from resolve_timer.overlay import (
+    build_overlay_payload,
+    final_overlay_rows,
+    format_final_overlay_text,
+    generated_overlay_name,
+)
 from resolve_timer.timing import compute_timing
 
 
@@ -53,6 +58,38 @@ class OverlayTests(unittest.TestCase):
         )
 
         self.assertRegex(generated_overlay_name(payload), r"^Resolve Timer - course - [0-9a-f]{16}$")
+
+    def test_final_overlay_text_formats_sector_and_lap_deltas(self):
+        course = Course("course", "Course", 2)
+        snapshot = parse_marker_snapshot(
+            [RawMarker("Start", 0), RawMarker("S1", 100), RawMarker("Finish", 310)],
+            course,
+        )
+        timing = compute_timing(snapshot, course, 100.0)
+        payload = build_overlay_payload(
+            course=course,
+            snapshot=snapshot,
+            current_timing=timing,
+            comparison_mode="best_lap",
+            run_id="run_custom",
+            source_fps=100.0,
+            sector_reference_seconds=(1.0, 2.0),
+            best_lap_seconds=3.0,
+            optimal_lap_seconds=2.9,
+        )
+
+        rows = final_overlay_rows(payload)
+        text = format_final_overlay_text(payload)
+
+        self.assertEqual([(row.label, row.delta_seconds) for row in rows], [
+            ("S1", 0.0),
+            ("S2", 0.10000000000000009),
+            ("LAP", 0.10000000000000009),
+        ])
+        self.assertIn("LIVE        0:03.100", text)
+        self.assertIn("S2          0:02.100    +0.100", text)
+        self.assertIn("BEST        0:03.000", text)
+        self.assertIn("OPTIMAL     0:02.900", text)
 
 
 if __name__ == "__main__":

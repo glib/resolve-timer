@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from .matching import marker_snapshot_hash
 from .models import Course, MarkerSnapshot, TimingResult
+from .timing import format_delta, format_duration
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,55 @@ class OverlayPayload:
 def generated_overlay_name(payload: OverlayPayload) -> str:
     identity = payload.run_id or marker_snapshot_hash(payload.marker_frames)
     return f"{FusionOverlayUpdater.generated_name_prefix} - {payload.course_id} - {identity}"
+
+
+@dataclass(frozen=True)
+class OverlayTextRow:
+    label: str
+    duration_seconds: float
+    delta_seconds: float | None
+
+
+def final_overlay_rows(payload: OverlayPayload) -> tuple[OverlayTextRow, ...]:
+    rows: list[OverlayTextRow] = []
+    for sector in range(1, len(payload.sector_reference_seconds) + 1):
+        start_marker = "Start" if sector == 1 else f"S{sector - 1}"
+        end_marker = "Finish" if sector == len(payload.sector_reference_seconds) else f"S{sector}"
+        duration_seconds = (
+            payload.marker_frames[end_marker] - payload.marker_frames[start_marker]
+        ) / payload.source_fps
+        reference_seconds = payload.sector_reference_seconds[sector - 1]
+        rows.append(
+            OverlayTextRow(
+                label=f"S{sector}",
+                duration_seconds=duration_seconds,
+                delta_seconds=_delta(duration_seconds, reference_seconds),
+            )
+        )
+    lap_seconds = (payload.finish_frame - payload.start_frame) / payload.source_fps
+    lap_reference = (
+        payload.best_lap_seconds if payload.comparison_mode == "best_lap" else payload.optimal_lap_seconds
+    )
+    rows.append(OverlayTextRow("LAP", lap_seconds, _delta(lap_seconds, lap_reference)))
+    return tuple(rows)
+
+
+def format_final_overlay_text(payload: OverlayPayload) -> str:
+    lines = [f"LIVE        {format_duration((payload.finish_frame - payload.start_frame) / payload.source_fps)}"]
+    for row in final_overlay_rows(payload):
+        delta = "--.---" if row.delta_seconds is None else format_delta(row.delta_seconds)
+        lines.append(f"{row.label:<11} {format_duration(row.duration_seconds):>8}   {delta:>7}")
+    if payload.best_lap_seconds is not None:
+        lines.append(f"BEST        {format_duration(payload.best_lap_seconds)}")
+    if payload.optimal_lap_seconds is not None:
+        lines.append(f"OPTIMAL     {format_duration(payload.optimal_lap_seconds)}")
+    return "\n".join(lines)
+
+
+def _delta(duration_seconds: float, reference_seconds: float | None) -> float | None:
+    if reference_seconds is None:
+        return None
+    return duration_seconds - reference_seconds
 
 
 def build_overlay_payload(
