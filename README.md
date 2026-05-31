@@ -41,6 +41,7 @@ resolve-timer --db examples/timer_db.yaml commit --course lower_whistler_a_line 
 resolve-timer --db examples/timer_db.yaml update-run --course lower_whistler_a_line --markers markers.csv --filename GX010123.MP4 --fps 59.94 run_2026_05_31_001
 resolve-timer --db examples/timer_db.yaml runs --course lower_whistler_a_line
 resolve-timer --db examples/timer_db.yaml stats --course lower_whistler_a_line
+resolve-timer --db examples/timer_db.yaml stats --course lower_whistler_a_line --json
 resolve-timer --db examples/timer_db.yaml ignore-run run_2026_05_31_001
 resolve-timer --db examples/timer_db.yaml unignore-run run_2026_05_31_001
 resolve-timer --db examples/timer_db.yaml overlay-payload --course lower_whistler_a_line --markers markers.csv --filename GX010123.MP4 --fps 59.94 --mode best_lap
