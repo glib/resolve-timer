@@ -80,6 +80,20 @@ class ResolveAdapterTests(unittest.TestCase):
             [("Start", 0), ("S1", 100), ("Finish", 300)],
         )
 
+    def test_selected_run_input_converts_adapter_selection_for_service(self):
+        source_clip = FakeSourceClip()
+        timeline_item = FakeTimelineItem(source_clip)
+        resolve = FakeResolve(FakeProjectManager(FakeProject(FakeTimeline(timeline_item))))
+        adapter = ResolveAdapter(resolve)
+
+        selected = adapter.selected_run_input("course", run_date="2026-05-31")
+
+        self.assertEqual(selected.course_id, "course")
+        self.assertEqual(selected.filename, "GX010123.MP4")
+        self.assertEqual(selected.source_fps, 100.0)
+        self.assertEqual(selected.clip_id, "clip-1")
+        self.assertEqual(selected.run_date, "2026-05-31")
+
     def test_selected_timeline_run_reports_missing_current_item(self):
         resolve = FakeResolve(FakeProjectManager(FakeProject(FakeTimeline(None))))
         adapter = ResolveAdapter(resolve)

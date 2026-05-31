@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .models import RawMarker
+from .service import SelectedRunInput
 
 
 class ResolveAdapterError(RuntimeError):
@@ -55,6 +56,17 @@ class ResolveAdapter:
             source_fps=self.source_fps_from_properties(properties),
             source_markers=self.markers_from_resolve_map(marker_map),
             clip_id=clip_id,
+        )
+
+    def selected_run_input(self, course_id: str, run_date: str | None = None) -> SelectedRunInput:
+        selected = self.selected_timeline_run()
+        return SelectedRunInput(
+            course_id=course_id,
+            filename=selected.filename,
+            source_fps=selected.source_fps,
+            markers=selected.source_markers,
+            clip_id=selected.clip_id,
+            run_date=run_date,
         )
 
     @staticmethod
