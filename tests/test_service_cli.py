@@ -50,6 +50,10 @@ class ServiceCliTests(unittest.TestCase):
         self.assertEqual(preview.matching_run.id, "run_custom")
         self.assertFalse(preview.has_marker_changes)
         self.assertEqual(preview.best_lap_references.lap_seconds, 3.0)
+        self.assertEqual(
+            [(row.label, row.delta_seconds) for row in preview.comparison_rows()],
+            [("S1", 0.0), ("S2", 0.0), ("LAP", 0.0)],
+        )
 
         payload = service.overlay_payload(self.selected)
         self.assertEqual(payload.run_id, "run_custom")
@@ -101,7 +105,13 @@ class ServiceCliTests(unittest.TestCase):
             tmp_path = Path(tmp)
             db_path = tmp_path / "timer_db.yaml"
             marker_path = tmp_path / "markers.csv"
-            TimerDatabase([self.course], []).save(db_path)
+            service = TimerService(TimerDatabase([self.course], []))
+            service.commit_new_run(
+                self.selected,
+                run_id="run_reference",
+                committed_at="2026-05-31T10:00:00Z",
+            )
+            service.save(db_path)
             with marker_path.open("w", newline="", encoding="utf-8") as handle:
                 writer = csv.DictWriter(handle, fieldnames=["name", "frame"])
                 writer.writeheader()
@@ -128,12 +138,15 @@ class ServiceCliTests(unittest.TestCase):
                         "GX010123.MP4",
                         "--fps",
                         "100",
+                        "--mode",
+                        "best_lap",
                     ]
                 )
 
         self.assertEqual(exit_code, 0)
-        self.assertIn("Lap: 0:03.000", stdout.getvalue())
-        self.assertIn("History: no committed run", stdout.getvalue())
+        self.assertIn("S1: 0:01.000 (+0.000)", stdout.getvalue())
+        self.assertIn("LAP: 0:03.000 (+0.000)", stdout.getvalue())
+        self.assertIn("History: matched run_reference", stdout.getvalue())
 
     def test_cli_overlay_payload_from_csv(self):
         with tempfile.TemporaryDirectory() as tmp:

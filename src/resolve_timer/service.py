@@ -31,6 +31,14 @@ class ComparisonReferences:
 
 
 @dataclass(frozen=True)
+class ComparisonRow:
+    label: str
+    duration_seconds: float
+    reference_seconds: float | None
+    delta_seconds: float | None
+
+
+@dataclass(frozen=True)
 class RunPreview:
     course: Course
     snapshot: MarkerSnapshot
@@ -43,6 +51,28 @@ class RunPreview:
     @property
     def has_marker_changes(self) -> bool:
         return self.matching_run is not None and self.matching_run.marker_frames != self.snapshot.frames
+
+    def comparison_rows(self, comparison_mode: str = "best_lap") -> tuple[ComparisonRow, ...]:
+        references = _references_for_mode(self, comparison_mode)
+        rows: list[ComparisonRow] = []
+        for sector, reference_seconds in zip(self.timing.sectors, references.sector_seconds):
+            rows.append(
+                ComparisonRow(
+                    label=f"S{sector.sector}",
+                    duration_seconds=sector.duration_seconds,
+                    reference_seconds=reference_seconds,
+                    delta_seconds=_delta(sector.duration_seconds, reference_seconds),
+                )
+            )
+        rows.append(
+            ComparisonRow(
+                label="LAP",
+                duration_seconds=self.timing.lap_seconds,
+                reference_seconds=references.lap_seconds,
+                delta_seconds=_delta(self.timing.lap_seconds, references.lap_seconds),
+            )
+        )
+        return tuple(rows)
 
 
 class TimerService:
@@ -190,6 +220,12 @@ def _references_for_mode(preview: RunPreview, comparison_mode: str) -> Compariso
     if comparison_mode == "optimal":
         return preview.optimal_references
     raise ValueError("comparison_mode must be best_lap or optimal")
+
+
+def _delta(duration_seconds: float, reference_seconds: float | None) -> float | None:
+    if reference_seconds is None:
+        return None
+    return duration_seconds - reference_seconds
 
 
 def _next_run_id(runs: list[RunRecord], run_date: str) -> str:

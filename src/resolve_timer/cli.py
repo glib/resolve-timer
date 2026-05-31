@@ -8,7 +8,7 @@ from pathlib import Path
 from .database import TimerDatabase
 from .models import RawMarker
 from .service import SelectedRunInput, TimerService
-from .timing import format_duration
+from .timing import format_delta, format_duration
 from .validation import validate_database
 
 
@@ -29,6 +29,7 @@ def main(argv: list[str] | None = None) -> int:
 
     preview = subparsers.add_parser("preview", help="Preview timing from a marker CSV")
     _add_selected_args(preview)
+    preview.add_argument("--mode", choices=["best_lap", "optimal"], default="best_lap")
     preview.set_defaults(func=_cmd_preview)
 
     commit = subparsers.add_parser("commit", help="Commit a new run from a marker CSV")
@@ -100,9 +101,8 @@ def _cmd_preview(args: argparse.Namespace) -> int:
     selected = _selected_from_args(args)
     preview = service.preview(selected)
     print(f"Course: {preview.course.name}")
-    print(f"Lap: {format_duration(preview.timing.lap_seconds)}")
-    for sector in preview.timing.sectors:
-        print(f"S{sector.sector}: {format_duration(sector.duration_seconds)}")
+    for row in preview.comparison_rows(args.mode):
+        print(_format_comparison_row(row.label, row.duration_seconds, row.delta_seconds))
     if preview.stats.best_lap:
         print(f"Best: {format_duration(preview.stats.best_lap.timing.lap_seconds)}")
     if preview.stats.optimal_seconds is not None:
@@ -180,6 +180,12 @@ def _run_flags(committed: bool, ignored: bool) -> str:
     if ignored:
         flags.append("ignored")
     return ",".join(flags)
+
+
+def _format_comparison_row(label: str, duration_seconds: float, delta_seconds: float | None) -> str:
+    if delta_seconds is None:
+        return f"{label}: {format_duration(duration_seconds)}"
+    return f"{label}: {format_duration(duration_seconds)} ({format_delta(delta_seconds)})"
 
 
 if __name__ == "__main__":
