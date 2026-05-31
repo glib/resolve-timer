@@ -2,6 +2,7 @@ import tempfile
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -64,6 +65,18 @@ class DatabaseStatsMatchingTests(unittest.TestCase):
             db.save(path)
 
             self.assertTrue(path.exists())
+            self.assertFalse((Path(tmp) / "timer_db.yaml.tmp").exists())
+
+    def test_database_save_removes_temp_file_after_write_failure(self):
+        db = TimerDatabase([self.course], [run_record("run_a", self.frames_a)])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "timer_db.yaml"
+            with patch("resolve_timer.database.yaml.safe_dump", side_effect=RuntimeError("boom")):
+                with self.assertRaises(RuntimeError):
+                    db.save(path)
+
+            self.assertFalse(path.exists())
             self.assertFalse((Path(tmp) / "timer_db.yaml.tmp").exists())
 
     def test_stats_use_only_committed_non_ignored_valid_runs(self):

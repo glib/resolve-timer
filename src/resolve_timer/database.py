@@ -41,9 +41,13 @@ class TimerDatabase:
             "courses": [course.to_dict() for course in self.courses],
             "runs": [run.to_dict() for run in self.runs],
         }
-        with tmp_path.open("w", encoding="utf-8") as handle:
-            yaml.safe_dump(data, handle, sort_keys=False)
-        tmp_path.replace(db_path)
+        try:
+            with tmp_path.open("w", encoding="utf-8") as handle:
+                yaml.safe_dump(data, handle, sort_keys=False)
+            tmp_path.replace(db_path)
+        except Exception:
+            tmp_path.unlink(missing_ok=True)
+            raise
 
     def course_by_id(self, course_id: str) -> Course:
         for course in self.courses:
