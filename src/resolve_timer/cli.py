@@ -43,6 +43,11 @@ def main(argv: list[str] | None = None) -> int:
     commit.add_argument("--run-id")
     commit.set_defaults(func=_cmd_commit)
 
+    update = subparsers.add_parser("update-run", help="Update an existing run from a marker CSV")
+    _add_selected_args(update)
+    update.add_argument("run_id")
+    update.set_defaults(func=_cmd_update_run)
+
     overlay = subparsers.add_parser("overlay-payload", help="Print overlay payload JSON from a marker CSV")
     _add_selected_args(overlay)
     overlay.add_argument("--mode", choices=["best_lap", "optimal"], default="best_lap")
@@ -134,6 +139,14 @@ def _cmd_commit(args: argparse.Namespace) -> int:
     run = service.commit_new_run(_selected_from_args(args), run_id=args.run_id)
     service.save(args.db)
     print(f"Committed {run.id}")
+    return 0
+
+
+def _cmd_update_run(args: argparse.Namespace) -> int:
+    service = TimerService.load(args.db)
+    run = service.update_existing_run(_selected_from_args(args), args.run_id)
+    service.save(args.db)
+    print(f"Updated {run.id}")
     return 0
 
 

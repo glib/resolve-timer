@@ -240,6 +240,55 @@ class ServiceCliTests(unittest.TestCase):
             self.assertIn("Deleted run_custom", stdout.getvalue())
             self.assertEqual(TimerDatabase.load(db_path).runs, [])
 
+    def test_cli_update_run_from_csv(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "timer_db.yaml"
+            marker_path = tmp_path / "markers.csv"
+            service = TimerService(TimerDatabase([self.course], []))
+            service.commit_new_run(
+                self.selected,
+                run_id="run_custom",
+                committed_at="2026-05-31T10:00:00Z",
+            )
+            service.save(db_path)
+            with marker_path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=["name", "frame"])
+                writer.writeheader()
+                writer.writerows(
+                    [
+                        {"name": "Start", "frame": "0"},
+                        {"name": "S1", "frame": "90"},
+                        {"name": "Finish", "frame": "290"},
+                    ]
+                )
+
+            stdout = StringIO()
+            with patch("sys.stdout", stdout):
+                exit_code = main(
+                    [
+                        "--db",
+                        str(db_path),
+                        "update-run",
+                        "--course",
+                        "course",
+                        "--markers",
+                        str(marker_path),
+                        "--filename",
+                        "GX010123.MP4",
+                        "--fps",
+                        "100",
+                        "run_custom",
+                    ]
+                )
+
+            loaded = TimerDatabase.load(db_path)
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Updated run_custom", stdout.getvalue())
+        self.assertEqual(loaded.runs[0].marker_frames["S1"], 90)
+        self.assertEqual(loaded.runs[0].marker_frames["Finish"], 290)
+
     def test_cli_validate_database(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
