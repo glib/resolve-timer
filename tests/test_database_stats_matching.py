@@ -114,6 +114,19 @@ class DatabaseStatsMatchingTests(unittest.TestCase):
         )
         self.assertEqual(len(marker_snapshot_hash(self.frames_a)), 16)
 
+    def test_matching_falls_back_to_filename_and_exact_marker_frames(self):
+        run = run_record("run_a", self.frames_a)
+        run.fingerprint = None
+
+        match = find_matching_run(
+            [run],
+            course_id="course",
+            filename="GX010123.MP4",
+            marker_frames=self.frames_a,
+        )
+
+        self.assertEqual(match.id, "run_a")
+
     def test_validate_database_reports_consistency_errors(self):
         valid = TimerDatabase([self.course], [run_record("run_a", self.frames_a)])
         self.assertEqual(validate_database(valid), [])

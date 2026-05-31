@@ -35,6 +35,12 @@ def find_matching_run(
     by_fingerprint = [run for run in course_runs if run.fingerprint == fingerprint]
     if by_fingerprint:
         return _earliest(by_fingerprint)
+    frames = marker_frames.frames if isinstance(marker_frames, MarkerSnapshot) else marker_frames
+    by_exact_snapshot = [
+        run for run in course_runs if run.filename == filename and run.marker_frames == frames
+    ]
+    if by_exact_snapshot:
+        return _earliest(by_exact_snapshot)
     return None
 
 
