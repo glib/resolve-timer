@@ -1,0 +1,6 @@
+schema_version: 1
+courses:
+  - id: lower_whistler_a_line
+    name: Lower Whistler A-Line
+    sector_count: 4
+runs: []
