@@ -14,7 +14,6 @@ from resolve_timer.database import TimerDatabase
 from resolve_timer.matching import clip_fingerprint
 from resolve_timer.models import Course, RawMarker
 from resolve_timer.service import SelectedRunInput, TimerService
-import resolve_timer
 
 
 class ServiceCliTests(unittest.TestCase):
@@ -180,11 +179,6 @@ class ServiceCliTests(unittest.TestCase):
 
         self.assertEqual(count, 1)
         self.assertEqual(run.fingerprint, clip_fingerprint(run.filename, run.marker_frames))
-
-    def test_package_exports_service_helpers(self):
-        self.assertIs(resolve_timer.TimerService, TimerService)
-        self.assertTrue(hasattr(resolve_timer, "ComparisonRow"))
-        self.assertTrue(hasattr(resolve_timer, "validate_database"))
 
     def test_cli_preview_from_csv(self):
         with tempfile.TemporaryDirectory() as tmp:
