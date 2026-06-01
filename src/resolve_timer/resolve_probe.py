@@ -14,6 +14,10 @@ class ResolveProbeResult:
     project_name: str | None
     timeline_name: str | None
     timeline_item_name: str | None
+    timeline_item_start: str | None
+    timeline_item_end: str | None
+    timeline_item_source_start: str | None
+    timeline_item_source_end: str | None
     source_clip_name: str | None
     source_clip_id: str | None
     marker_keys: tuple[str, ...]
@@ -46,6 +50,10 @@ def probe_resolve(resolve: object | None = None) -> ResolveProbeResult:
             project_name=_string_or_none(_call_optional(project, "GetName")),
             timeline_name=_string_or_none(_call_optional(timeline, "GetName")),
             timeline_item_name=_string_or_none(_call_optional(timeline_item, "GetName")),
+            timeline_item_start=_string_or_none(_call_optional(timeline_item, "GetStart")),
+            timeline_item_end=_string_or_none(_call_optional(timeline_item, "GetEnd")),
+            timeline_item_source_start=_string_or_none(_call_optional(timeline_item, "GetSourceStartFrame")),
+            timeline_item_source_end=_string_or_none(_call_optional(timeline_item, "GetSourceEndFrame")),
             source_clip_name=_string_or_none(_call_optional(source_clip, "GetName")),
             source_clip_id=_string_or_none(_call_optional(source_clip, "GetUniqueId")),
             marker_keys=_dict_keys(marker_map),
@@ -62,6 +70,10 @@ def probe_resolve(resolve: object | None = None) -> ResolveProbeResult:
             project_name=None,
             timeline_name=None,
             timeline_item_name=None,
+            timeline_item_start=None,
+            timeline_item_end=None,
+            timeline_item_source_start=None,
+            timeline_item_source_end=None,
             source_clip_name=None,
             source_clip_id=None,
             marker_keys=(),

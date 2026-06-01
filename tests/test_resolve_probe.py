@@ -42,6 +42,18 @@ class FakeTimelineItem:
     def GetName(self):
         return "Timeline Item"
 
+    def GetStart(self):
+        return 1000
+
+    def GetEnd(self):
+        return 1300
+
+    def GetSourceStartFrame(self):
+        return 10
+
+    def GetSourceEndFrame(self):
+        return 310
+
     def GetMediaPoolItem(self):
         return FakeSourceClip()
 
@@ -68,6 +80,10 @@ class ResolveProbeTests(unittest.TestCase):
         self.assertEqual(result.resolve_version, "19.1.0")
         self.assertEqual(result.project_name, "Project")
         self.assertEqual(result.timeline_name, "Timeline")
+        self.assertEqual(result.timeline_item_start, "1000")
+        self.assertEqual(result.timeline_item_end, "1300")
+        self.assertEqual(result.timeline_item_source_start, "10")
+        self.assertEqual(result.timeline_item_source_end, "310")
         self.assertEqual(result.source_clip_id, "clip-1")
         self.assertEqual(result.marker_keys, ("0", "100"))
         self.assertEqual(result.marker_payload_keys, ("name", "color"))
