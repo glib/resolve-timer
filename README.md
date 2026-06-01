@@ -39,6 +39,8 @@ selected. It writes `resolve_probe.json` with Resolve version, selected item,
 source clip, marker, FPS, and frame-domain fields. Use that artifact to validate
 the adapter assumptions before changing Fusion or UI code.
 
+See `ACCEPTANCE.md` for the phase gates and manual Resolve validation matrix.
+
 ## CLI Smoke Tests
 
 ```powershell
