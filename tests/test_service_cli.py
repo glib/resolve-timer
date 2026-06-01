@@ -93,6 +93,62 @@ class ServiceCliTests(unittest.TestCase):
         service.delete_run("run_custom")
         self.assertEqual(service.database.runs, [])
 
+    def test_commit_new_run_rejects_duplicate_explicit_run_id(self):
+        service = TimerService(TimerDatabase([self.course], []))
+        service.commit_new_run(
+            self.selected,
+            run_id="run_custom",
+            committed_at="2026-05-31T10:00:00Z",
+        )
+
+        with self.assertRaises(ValueError) as raised:
+            service.commit_new_run(
+                self.selected,
+                run_id="run_custom",
+                committed_at="2026-05-31T11:00:00Z",
+            )
+
+        self.assertIn("run already exists: run_custom", str(raised.exception))
+
+    def test_update_existing_run_preserves_ignored_state(self):
+        service = TimerService(TimerDatabase([self.course], []))
+        service.commit_new_run(
+            self.selected,
+            run_id="run_custom",
+            committed_at="2026-05-31T10:00:00Z",
+        )
+        service.set_ignored("run_custom", True)
+
+        updated = service.update_existing_run(
+            self.selected,
+            "run_custom",
+            committed_at="2026-05-31T11:00:00Z",
+        )
+
+        self.assertTrue(updated.ignored)
+
+    def test_update_existing_run_rejects_course_mismatch(self):
+        other_course = Course("other", "Other", 2)
+        service = TimerService(TimerDatabase([self.course, other_course], []))
+        service.commit_new_run(
+            self.selected,
+            run_id="run_custom",
+            committed_at="2026-05-31T10:00:00Z",
+        )
+        selected_for_other_course = SelectedRunInput(
+            course_id="other",
+            filename=self.selected.filename,
+            source_fps=self.selected.source_fps,
+            markers=self.selected.markers,
+            clip_id=self.selected.clip_id,
+            run_date=self.selected.run_date,
+        )
+
+        with self.assertRaises(ValueError) as raised:
+            service.update_existing_run(selected_for_other_course, "run_custom")
+
+        self.assertIn("belongs to course course, not other", str(raised.exception))
+
     def test_commit_generates_incrementing_run_id(self):
         service = TimerService(TimerDatabase([self.course], []))
 
@@ -567,6 +623,52 @@ class ServiceCliTests(unittest.TestCase):
         self.assertIn("Updated run_custom", stdout.getvalue())
         self.assertEqual(loaded.runs[0].marker_frames["S1"], 90)
         self.assertEqual(loaded.runs[0].marker_frames["Finish"], 290)
+
+    def test_cli_commit_rejects_duplicate_run_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "timer_db.yaml"
+            marker_path = tmp_path / "markers.csv"
+            service = TimerService(TimerDatabase([self.course], []))
+            service.commit_new_run(
+                self.selected,
+                run_id="run_custom",
+                committed_at="2026-05-31T10:00:00Z",
+            )
+            service.save(db_path)
+            with marker_path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=["name", "frame"])
+                writer.writeheader()
+                writer.writerows(
+                    [
+                        {"name": "Start", "frame": "0"},
+                        {"name": "S1", "frame": "100"},
+                        {"name": "Finish", "frame": "300"},
+                    ]
+                )
+
+            stderr = StringIO()
+            with patch("sys.stderr", stderr):
+                exit_code = main(
+                    [
+                        "--db",
+                        str(db_path),
+                        "commit",
+                        "--course",
+                        "course",
+                        "--markers",
+                        str(marker_path),
+                        "--filename",
+                        "GX010123.MP4",
+                        "--fps",
+                        "100",
+                        "--run-id",
+                        "run_custom",
+                    ]
+                )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("Error: run already exists: run_custom", stderr.getvalue())
 
     def test_cli_validate_database(self):
         with tempfile.TemporaryDirectory() as tmp:

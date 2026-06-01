@@ -134,6 +134,8 @@ class TimerService:
         run_id: str | None = None,
         committed_at: str | None = None,
     ) -> RunRecord:
+        if run_id and any(run.id == run_id for run in self.database.runs):
+            raise ValueError(f"run already exists: {run_id}")
         preview = self.preview(selected)
         created_at = committed_at or utc_timestamp()
         new_run = RunRecord(
@@ -162,9 +164,13 @@ class TimerService:
         preview = self.preview(selected)
         for existing in self.database.runs:
             if existing.id == run_id:
+                if existing.course_id != preview.course.id:
+                    raise ValueError(
+                        f"run {run_id} belongs to course {existing.course_id}, not {preview.course.id}"
+                    )
                 updated = RunRecord(
                     id=existing.id,
-                    course_id=preview.course.id,
+                    course_id=existing.course_id,
                     date=selected.run_date or existing.date,
                     filename=selected.filename,
                     source_fps=selected.source_fps,
@@ -172,7 +178,7 @@ class TimerService:
                     clip_id=selected.clip_id or existing.clip_id,
                     fingerprint=clip_fingerprint(selected.filename, preview.snapshot),
                     committed=True,
-                    ignored=False,
+                    ignored=existing.ignored,
                     committed_at=committed_at or utc_timestamp(),
                     metadata=dict(existing.metadata),
                 )
