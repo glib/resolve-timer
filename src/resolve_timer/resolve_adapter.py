@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from .models import RawMarker
-from .service import SelectedRunInput
 
 
 class ResolveAdapterError(RuntimeError):
@@ -58,7 +57,9 @@ class ResolveAdapter:
             clip_id=clip_id,
         )
 
-    def selected_run_input(self, course_id: str, run_date: str | None = None) -> SelectedRunInput:
+    def selected_run_input(self, course_id: str, run_date: str | None = None):
+        from .service import SelectedRunInput
+
         selected = self.selected_timeline_run()
         return SelectedRunInput(
             course_id=course_id,

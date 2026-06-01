@@ -1,8 +1,11 @@
 import json
+import builtins
+import importlib
 import tempfile
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -102,6 +105,21 @@ class ResolveProbeTests(unittest.TestCase):
 
         self.assertEqual(payload["resolve_version"], "19.1.0")
         self.assertEqual(payload["selected_marker_count"], 2)
+
+    def test_probe_module_import_does_not_require_yaml(self):
+        original_import = builtins.__import__
+
+        def reject_yaml(name, *args, **kwargs):
+            if name == "yaml":
+                raise ModuleNotFoundError("No module named 'yaml'")
+            return original_import(name, *args, **kwargs)
+
+        sys.modules.pop("resolve_timer.resolve_probe", None)
+        sys.modules.pop("resolve_timer.resolve_adapter", None)
+        with patch("builtins.__import__", side_effect=reject_yaml):
+            module = importlib.import_module("resolve_timer.resolve_probe")
+
+        self.assertTrue(hasattr(module, "probe_resolve"))
 
 
 if __name__ == "__main__":
