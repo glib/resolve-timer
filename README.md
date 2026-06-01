@@ -31,6 +31,14 @@ python -m unittest discover -s tests
 
 `PyYAML` is required for YAML read/write.
 
+## Resolve API Probe
+
+Before implementing or debugging the in-Resolve UI/overlay path, run
+`scripts/ResolveProbe.py` from Resolve's Python environment with a timeline item
+selected. It writes `resolve_probe.json` with Resolve version, selected item,
+source clip, marker, FPS, and frame-domain fields. Use that artifact to validate
+the adapter assumptions before changing Fusion or UI code.
+
 ## CLI Smoke Tests
 
 ```powershell
