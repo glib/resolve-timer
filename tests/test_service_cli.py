@@ -297,6 +297,62 @@ class ServiceCliTests(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertIn("row 2 invalid frame 'abc'", stderr.getvalue())
 
+    def test_cli_reports_missing_marker_csv_without_traceback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "timer_db.yaml"
+            missing_marker_path = tmp_path / "missing.csv"
+            TimerDatabase([self.course], []).save(db_path)
+
+            stderr = StringIO()
+            with patch("sys.stderr", stderr):
+                exit_code = main(
+                    [
+                        "--db",
+                        str(db_path),
+                        "preview",
+                        "--course",
+                        "course",
+                        "--markers",
+                        str(missing_marker_path),
+                        "--filename",
+                        "GX010123.MP4",
+                        "--fps",
+                        "100",
+                    ]
+                )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("Error: could not read marker CSV", stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())
+
+    def test_cli_reports_malformed_database_without_traceback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "timer_db.yaml"
+            db_path.write_text("schema_version: [unterminated\n", encoding="utf-8")
+
+            stderr = StringIO()
+            with patch("sys.stderr", stderr):
+                exit_code = main(["--db", str(db_path), "courses"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("Error: could not parse database", stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())
+
+    def test_cli_reports_non_mapping_database_without_traceback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "timer_db.yaml"
+            db_path.write_text("- not\n- a\n- mapping\n", encoding="utf-8")
+
+            stderr = StringIO()
+            with patch("sys.stderr", stderr):
+                exit_code = main(["--db", str(db_path), "courses"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("Error: database", stderr.getvalue())
+        self.assertIn("must contain a YAML mapping", stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())
+
     def test_cli_overlay_payload_from_csv(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

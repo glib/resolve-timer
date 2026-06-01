@@ -293,7 +293,11 @@ def _selected_from_args(args: argparse.Namespace) -> SelectedRunInput:
 
 def _read_marker_csv(path: str | Path) -> list[RawMarker]:
     csv_path = Path(path)
-    with csv_path.open("r", newline="", encoding="utf-8") as handle:
+    try:
+        handle = csv_path.open("r", newline="", encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(f"could not read marker CSV {csv_path}: {exc}") from exc
+    with handle:
         reader = csv.DictReader(handle)
         missing = {"name", "frame"} - set(reader.fieldnames or [])
         if missing:

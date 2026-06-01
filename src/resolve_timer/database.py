@@ -22,15 +22,25 @@ class TimerDatabase:
         db_path = Path(path)
         if not db_path.exists():
             return cls()
-        with db_path.open("r", encoding="utf-8") as handle:
-            raw = yaml.safe_load(handle) or {}
+        try:
+            with db_path.open("r", encoding="utf-8") as handle:
+                raw = yaml.safe_load(handle) or {}
+        except OSError as exc:
+            raise DatabaseError(f"could not read database {db_path}: {exc}") from exc
+        except yaml.YAMLError as exc:
+            raise DatabaseError(f"could not parse database {db_path}: {exc}") from exc
+        if not isinstance(raw, dict):
+            raise DatabaseError(f"database {db_path} must contain a YAML mapping")
         version = raw.get("schema_version")
         if version != SCHEMA_VERSION:
             raise DatabaseError(f"unsupported schema_version {version!r}; expected {SCHEMA_VERSION}")
-        return cls(
-            courses=[Course.from_dict(item) for item in raw.get("courses", [])],
-            runs=[RunRecord.from_dict(item) for item in raw.get("runs", [])],
-        )
+        try:
+            return cls(
+                courses=[Course.from_dict(item) for item in raw.get("courses", [])],
+                runs=[RunRecord.from_dict(item) for item in raw.get("runs", [])],
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise DatabaseError(f"invalid database {db_path}: {exc}") from exc
 
     def save(self, path: str | Path) -> None:
         db_path = Path(path)
@@ -45,9 +55,9 @@ class TimerDatabase:
             with tmp_path.open("w", encoding="utf-8") as handle:
                 yaml.safe_dump(data, handle, sort_keys=False)
             tmp_path.replace(db_path)
-        except Exception:
+        except Exception as exc:
             tmp_path.unlink(missing_ok=True)
-            raise
+            raise DatabaseError(f"could not write database {db_path}: {exc}") from exc
 
     def course_by_id(self, course_id: str) -> Course:
         for course in self.courses:

@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from resolve_timer.database import TimerDatabase
+from resolve_timer.database import DatabaseError, TimerDatabase
 from resolve_timer.matching import clip_fingerprint, find_matching_run, marker_snapshot_hash
 from resolve_timer.models import Course, RunRecord, utc_timestamp
 from resolve_timer.stats import compute_course_stats
@@ -73,11 +73,31 @@ class DatabaseStatsMatchingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "timer_db.yaml"
             with patch("resolve_timer.database.yaml.safe_dump", side_effect=RuntimeError("boom")):
-                with self.assertRaises(RuntimeError):
+                with self.assertRaises(DatabaseError):
                     db.save(path)
 
             self.assertFalse(path.exists())
             self.assertFalse((Path(tmp) / "timer_db.yaml.tmp").exists())
+
+    def test_database_load_rejects_non_mapping_yaml(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "timer_db.yaml"
+            path.write_text("- not\n- a\n- mapping\n", encoding="utf-8")
+
+            with self.assertRaises(DatabaseError) as raised:
+                TimerDatabase.load(path)
+
+        self.assertIn("must contain a YAML mapping", str(raised.exception))
+
+    def test_database_load_wraps_malformed_yaml(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "timer_db.yaml"
+            path.write_text("schema_version: [unterminated\n", encoding="utf-8")
+
+            with self.assertRaises(DatabaseError) as raised:
+                TimerDatabase.load(path)
+
+        self.assertIn("could not parse database", str(raised.exception))
 
     def test_stats_use_only_committed_non_ignored_valid_runs(self):
         runs = [
