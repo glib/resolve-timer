@@ -64,6 +64,7 @@ Do not store derived sector/lap times in YAML unless needed for debugging. Store
 Example YAML shape:
 
 ```yaml
+schema_version: 1
 courses:
   - id: lower_whistler_a_line
     name: Lower Whistler A-Line
@@ -74,7 +75,9 @@ runs:
     course_id: lower_whistler_a_line
     date: 2026-05-31
     filename: GX010123.MP4
+    source_fps: 59.94
     clip_id: optional_resolve_media_pool_id
+    fingerprint: GX010123.MP4:optional_marker_snapshot_hash
     committed: true
     ignored: false
     marker_frames:
@@ -261,3 +264,10 @@ examples/
 3. Decide Python packaging style.
 4. Build pure-Python timing/YAML modules first so they can be tested outside Resolve.
 5. Add Resolve adapter layer second, keeping Resolve API calls isolated.
+
+## Current Implementation Status
+
+The current implementation has a tested pure-Python core, CLI workflows, YAML
+database management, Resolve adapter boundary tests with fakes, and overlay
+payload/text previews. The interactive Resolve UI and Fusion overlay writer are
+not yet implemented and require live Resolve API validation before completion.

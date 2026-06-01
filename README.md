@@ -1,8 +1,10 @@
 # Resolve Timer
 
-Interactive DaVinci Resolve Studio timing tool for mountain bike race-run comparison.
+DaVinci Resolve Studio timing tool for mountain bike race-run comparison.
 
 The core package is pure Python and testable outside Resolve. Resolve-specific access is isolated behind adapter, UI, and overlay modules so API behavior can be validated incrementally inside Resolve Studio.
+
+The current implementation is a tested core and CLI workflow. The in-Resolve interactive UI and Fusion overlay writer are still under live Resolve validation.
 
 ## Project Shape
 
