@@ -70,7 +70,7 @@ class ResolveAdapter:
         )
 
     @staticmethod
-    def markers_from_resolve_map(marker_map: dict[Any, dict[str, Any]]) -> tuple[RawMarker, ...]:
+    def markers_from_resolve_map(marker_map: dict[Any, Any]) -> tuple[RawMarker, ...]:
         """Convert Resolve's marker dictionary into RawMarker objects.
 
         Resolve typically returns marker data keyed by frame, with each value
@@ -79,6 +79,10 @@ class ResolveAdapter:
         """
         markers: list[RawMarker] = []
         for frame_key, data in marker_map.items():
+            if not isinstance(data, dict):
+                raise ResolveAdapterError(
+                    f"marker payload for frame {frame_key!r} is not a dictionary"
+                )
             name = data.get("name") or data.get("Name")
             if not name:
                 continue

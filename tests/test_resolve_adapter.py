@@ -119,6 +119,12 @@ class ResolveAdapterTests(unittest.TestCase):
             ("Finish", 300),
         ])
 
+    def test_markers_from_resolve_map_rejects_non_dictionary_payload(self):
+        with self.assertRaises(ResolveAdapterError) as raised:
+            ResolveAdapter.markers_from_resolve_map({0: "Start"})
+
+        self.assertIn("marker payload for frame 0 is not a dictionary", str(raised.exception))
+
     def test_source_fps_from_properties_accepts_common_keys_and_fraction(self):
         self.assertEqual(ResolveAdapter.source_fps_from_properties({"FPS": "59.94"}), 59.94)
         self.assertAlmostEqual(
