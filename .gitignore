@@ -1,4 +1,5 @@
 .venv/
+.resolve_deps/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -7,3 +8,12 @@ __pycache__/
 build/
 dist/
 *.egg-info/
+resolve_timer.log
+resolve_timer_preferences.json
+resolve_timer_startup.json
+resolve_fusion_probe.comp
+resolve_fusion_probe.json
+resolve_probe.json
+resolve_runtime.json
+resolve_ui_probe.json
+timer_db.yaml

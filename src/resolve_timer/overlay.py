@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from dataclasses import dataclass
+from typing import Any
 
 from .matching import marker_snapshot_hash
 from .models import Course, MarkerSnapshot, TimingResult
@@ -125,15 +126,167 @@ def build_overlay_payload(
 
 
 class FusionOverlayUpdater:
-    """Resolve/Fusion overlay writer.
-
-    This class is intentionally thin until the exact Resolve Fusion API calls are
-    validated in Studio. The stable payload shape is ready for those calls.
-    """
+    """Create or update a static Text+ overlay on a timeline item's Fusion comp."""
 
     generated_name_prefix = "Resolve Timer"
+    text_tool_name = "ResolveTimerText"
+    merge_tool_name = "ResolveTimerMerge"
 
-    def update_or_create(self, timeline_item: object, payload: OverlayPayload) -> None:
-        raise NotImplementedError(
-            "Fusion overlay creation/update must be validated inside DaVinci Resolve Studio"
+    def update_or_create(
+        self,
+        timeline_item: object,
+        payload: OverlayPayload,
+    ) -> "FusionOverlayUpdateResult":
+        comp_name = self.comp_name(payload.course_id)
+        existing_names = _fusion_comp_names(timeline_item)
+        created = comp_name not in existing_names
+        if created:
+            comp = _call_required(timeline_item, "AddFusionComp")
+            new_names = _fusion_comp_names(timeline_item)
+            added_name = _new_comp_name(existing_names, new_names, comp)
+            if added_name != comp_name:
+                rename = getattr(timeline_item, "RenameFusionCompByName", None)
+                if not callable(rename) or not rename(added_name, comp_name):
+                    raise RuntimeError(
+                        f"could not rename Fusion comp {added_name!r} to {comp_name!r}"
+                    )
+                comp = _call_required(timeline_item, "GetFusionCompByName", comp_name)
+        else:
+            comp = _call_required(timeline_item, "GetFusionCompByName", comp_name)
+
+        _call_optional(comp, "Lock")
+        try:
+            text = _find_or_add_tool(comp, self.text_tool_name, "TextPlus", 0, -1)
+            merge = _find_or_add_tool(comp, self.merge_tool_name, "Merge", 1, 0)
+            media_in = _find_required_tool(comp, ("MediaIn1", "MediaIn"))
+            media_out = _find_required_tool(comp, ("MediaOut1", "MediaOut"))
+
+            _set_input(text, "StyledText", format_final_overlay_text(payload))
+            _set_input(text, "Font", "Open Sans")
+            _set_input(text, "Style", "Semibold")
+            _set_input(text, "Size", 0.035)
+            _set_input(text, "Center", {1: 0.79, 2: 0.72})
+
+            _connect_input(merge, "Background", media_in)
+            _connect_input(merge, "Foreground", text)
+            _set_input(media_out, "ColorGrade", "Color")
+            _connect_input(media_out, "Input", merge)
+        finally:
+            _call_optional(comp, "Unlock")
+
+        return FusionOverlayUpdateResult(
+            comp_name=comp_name,
+            created=created,
+            text_tool_name=self.text_tool_name,
+            merge_tool_name=self.merge_tool_name,
+            final_text=format_final_overlay_text(payload),
         )
+
+    @classmethod
+    def comp_name(cls, course_id: str) -> str:
+        return f"{cls.generated_name_prefix} - {course_id}"
+
+
+@dataclass(frozen=True)
+class FusionOverlayUpdateResult:
+    comp_name: str
+    created: bool
+    text_tool_name: str
+    merge_tool_name: str
+    final_text: str
+
+
+def _fusion_comp_names(timeline_item: object) -> tuple[str, ...]:
+    method = getattr(timeline_item, "GetFusionCompNameList", None)
+    if not callable(method):
+        raise RuntimeError("timeline item does not expose GetFusionCompNameList")
+    names = method()
+    if names is None:
+        return ()
+    if isinstance(names, dict):
+        values = names.values()
+    elif isinstance(names, (list, tuple)):
+        values = names
+    else:
+        raise RuntimeError("GetFusionCompNameList returned an unexpected value")
+    return tuple(str(name) for name in values)
+
+
+def _new_comp_name(
+    existing_names: tuple[str, ...],
+    new_names: tuple[str, ...],
+    comp: object,
+) -> str:
+    added = [name for name in new_names if name not in existing_names]
+    if len(added) == 1:
+        return added[0]
+    attrs = _call_optional(comp, "GetAttrs")
+    if isinstance(attrs, dict) and attrs.get("COMPS_Name"):
+        return str(attrs["COMPS_Name"])
+    raise RuntimeError("could not identify the newly added Fusion comp")
+
+
+def _find_or_add_tool(
+    comp: object,
+    name: str,
+    tool_type: str,
+    x: int,
+    y: int,
+) -> object:
+    tool = _call_optional(comp, "FindTool", name)
+    if tool is not None:
+        return tool
+    add_tool = getattr(comp, "AddTool", None)
+    if not callable(add_tool):
+        raise RuntimeError("Fusion comp does not expose AddTool")
+    tool = add_tool(tool_type, x, y)
+    if tool is None:
+        raise RuntimeError(f"Fusion could not add {tool_type}")
+    set_attrs = getattr(tool, "SetAttrs", None)
+    if not callable(set_attrs):
+        raise RuntimeError(f"Fusion could not name {tool_type} tool {name}")
+    if set_attrs({"TOOLS_Name": name}) is False:
+        raise RuntimeError(f"Fusion could not name {tool_type} tool {name}")
+    return tool
+
+
+def _find_required_tool(comp: object, names: tuple[str, ...]) -> object:
+    for name in names:
+        tool = _call_optional(comp, "FindTool", name)
+        if tool is not None:
+            return tool
+    raise RuntimeError(f"Fusion comp is missing required tool: {' or '.join(names)}")
+
+
+def _set_input(tool: object, name: str, value: Any) -> None:
+    method = getattr(tool, "SetInput", None)
+    if not callable(method):
+        raise RuntimeError(f"Fusion tool does not expose SetInput for {name}")
+    result = method(name, value)
+    if result is False:
+        raise RuntimeError(f"Fusion rejected input {name}")
+
+
+def _connect_input(tool: object, name: str, source: object) -> None:
+    method = getattr(tool, "ConnectInput", None)
+    if not callable(method):
+        raise RuntimeError(f"Fusion tool does not expose ConnectInput for {name}")
+    if method(name, source) is False:
+        raise RuntimeError(f"Fusion could not connect input {name}")
+
+
+def _call_required(target: object, method_name: str, *args: Any) -> Any:
+    method = getattr(target, method_name, None)
+    if not callable(method):
+        raise RuntimeError(f"object does not expose {method_name}")
+    value = method(*args)
+    if value is None:
+        raise RuntimeError(f"{method_name} returned nothing")
+    return value
+
+
+def _call_optional(target: object, method_name: str, *args: Any) -> Any:
+    method = getattr(target, method_name, None)
+    if not callable(method):
+        return None
+    return method(*args)

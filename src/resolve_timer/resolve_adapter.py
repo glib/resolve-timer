@@ -11,12 +11,12 @@ class ResolveAdapterError(RuntimeError):
 
 
 @dataclass(frozen=True)
-class SelectedTimelineRun:
-    timeline_item: object
+class SelectedMediaPoolRun:
     source_clip: object
     filename: str
     source_fps: float
     source_markers: tuple[RawMarker, ...]
+    marker_source: str
     clip_id: str | None = None
 
 
@@ -30,37 +30,43 @@ class ResolveAdapter:
     def __init__(self, resolve: object | None = None):
         self.resolve = resolve or self._discover_resolve()
 
-    def selected_timeline_run(self) -> SelectedTimelineRun:
+    def selected_media_pool_run(self) -> SelectedMediaPoolRun:
         project_manager = _call_required(self.resolve, "GetProjectManager")
         project = _call_required(project_manager, "GetCurrentProject")
-        timeline = _call_required(project, "GetCurrentTimeline")
-        timeline_item = _call_required(timeline, "GetCurrentVideoItem")
-        source_clip = _call_required(timeline_item, "GetMediaPoolItem")
-        marker_map = _call_required(source_clip, "GetMarkers")
-        properties = _call_required(source_clip, "GetClipProperty")
-        if not isinstance(marker_map, dict):
+        media_pool = _call_required(project, "GetMediaPool")
+        selected_clips = _call_required(media_pool, "GetSelectedClips")
+        if not isinstance(selected_clips, (list, tuple)):
+            raise ResolveAdapterError("Resolve GetSelectedClips did not return a list")
+        if len(selected_clips) != 1:
+            raise ResolveAdapterError(
+                f"Select exactly one Media Pool clip; Resolve reports {len(selected_clips)} selected"
+            )
+        source_clip = selected_clips[0]
+        source_marker_map = _call_required(source_clip, "GetMarkers")
+        if not isinstance(source_marker_map, dict):
             raise ResolveAdapterError("source clip markers are not a dictionary")
+        properties = _call_required(source_clip, "GetClipProperty")
         if not isinstance(properties, dict):
             raise ResolveAdapterError("source clip properties are not a dictionary")
         filename = _first_property(properties, ("File Name", "Filename", "Name"))
         if filename is None:
-            filename = str(_call_optional(timeline_item, "GetName") or "")
+            filename = str(_call_optional(source_clip, "GetName") or "")
         if not filename:
             raise ResolveAdapterError("source clip filename property not found")
         clip_id = _optional_text(_call_optional(source_clip, "GetUniqueId"))
-        return SelectedTimelineRun(
-            timeline_item=timeline_item,
+        return SelectedMediaPoolRun(
             source_clip=source_clip,
             filename=filename,
             source_fps=self.source_fps_from_properties(properties),
-            source_markers=self.markers_from_resolve_map(marker_map),
+            source_markers=self.markers_from_resolve_map(source_marker_map),
+            marker_source="source_clip",
             clip_id=clip_id,
         )
 
     def selected_run_input(self, course_id: str, run_date: str | None = None):
         from .service import SelectedRunInput
 
-        selected = self.selected_timeline_run()
+        selected = self.selected_media_pool_run()
         return SelectedRunInput(
             course_id=course_id,
             filename=selected.filename,
@@ -69,6 +75,27 @@ class ResolveAdapter:
             clip_id=selected.clip_id,
             run_date=run_date,
         )
+
+    def matching_current_timeline_video_item(
+        self,
+        selected: SelectedMediaPoolRun,
+    ) -> object:
+        project_manager = _call_required(self.resolve, "GetProjectManager")
+        project = _call_required(project_manager, "GetCurrentProject")
+        timeline = _call_required(project, "GetCurrentTimeline")
+        timeline_item = _call_required(timeline, "GetCurrentVideoItem")
+        timeline_media = _call_required(timeline_item, "GetMediaPoolItem")
+        timeline_clip_id = _optional_text(_call_optional(timeline_media, "GetUniqueId"))
+        if selected.clip_id and timeline_clip_id:
+            matches = selected.clip_id == timeline_clip_id
+        else:
+            timeline_name = _optional_text(_call_optional(timeline_media, "GetName"))
+            matches = timeline_name == selected.filename
+        if not matches:
+            raise ResolveAdapterError(
+                "selected Media Pool clip does not match the current timeline video item"
+            )
+        return timeline_item
 
     @staticmethod
     def markers_from_resolve_map(marker_map: dict[Any, Any]) -> tuple[RawMarker, ...]:

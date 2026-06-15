@@ -32,6 +32,14 @@ class FakeProject:
     def GetCurrentTimeline(self):
         return FakeTimeline()
 
+    def GetMediaPool(self):
+        return FakeMediaPool()
+
+
+class FakeMediaPool:
+    def GetSelectedClips(self):
+        return [FakeSourceClip()]
+
 
 class FakeTimeline:
     def GetName(self):
@@ -88,6 +96,9 @@ class ResolveProbeTests(unittest.TestCase):
         self.assertEqual(result.timeline_item_source_start, "10")
         self.assertEqual(result.timeline_item_source_end, "310")
         self.assertEqual(result.source_clip_id, "clip-1")
+        self.assertEqual(result.selected_media_pool_clip_names, ("Source Clip",))
+        self.assertEqual(result.selected_media_pool_clip_ids, ("clip-1",))
+        self.assertEqual(result.selected_media_pool_marker_names, ("Start", "Finish"))
         self.assertEqual(result.marker_keys, ("0", "100"))
         self.assertEqual(result.marker_payload_keys, ("name", "color"))
         self.assertEqual(result.clip_property_keys, ("File Name", "FPS"))
