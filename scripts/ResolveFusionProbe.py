@@ -1,8 +1,10 @@
-"""Create or update a static Resolve Timer Text+ overlay for live API validation.
+"""Create or update the Resolve Timer Fusion overlay for live API validation.
 
 Before running:
-- Select exactly one Media Pool source clip.
 - Put the timeline playhead over the matching timeline video item.
+
+The probe reads the current timeline item's source clip directly. The production
+tool still requires an explicit matching Media Pool selection.
 
 The script writes `resolve_fusion_probe.json` in the project root.
 """
@@ -32,11 +34,13 @@ from resolve_timer.fusion_probe import run_fusion_probe, save_fusion_probe_resul
 
 if __name__ == "__main__":
     output_path = PROJECT_ROOT / "resolve_fusion_probe.json"
+    resolve = globals().get("resolve")
     result = run_fusion_probe(
         database_path=PROJECT_ROOT / "timer_db.yaml",
         preferences_path=PROJECT_ROOT / "resolve_timer_preferences.json",
-        resolve=globals().get("resolve"),
+        resolve=resolve,
         export_path=PROJECT_ROOT / "resolve_fusion_probe.comp",
+        use_current_timeline_item=True,
     )
     save_fusion_probe_result(result, output_path)
     print(f"Wrote {output_path}")

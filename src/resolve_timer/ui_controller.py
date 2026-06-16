@@ -237,7 +237,7 @@ class ResolveTimerController:
             result = self.overlay_updater.update_or_create(timeline_item, payload)
             state = self.refresh_selection()
             action = "Created" if result.created else "Updated"
-            return _with_status(state, f"{action} static overlay {result.comp_name}")
+            return _with_status(state, f"{action} live overlay {result.comp_name}")
         except Exception as exc:
             return self._mutation_error("Overlay update failed", exc)
 

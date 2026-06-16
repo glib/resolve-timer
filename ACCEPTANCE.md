@@ -58,19 +58,32 @@ ongoing manual compatibility check.
 
 ## Phase 4: Overlay V1
 
-Current gate: run `ResolveFusionProbe` twice on the same matching Media Pool and
-timeline clip. Confirm static text creation on the first run and deterministic
-comp/node reuse on the second run before enabling the main-window action.
-
 Validated in Resolve 21:
 
 - Matching selected Media Pool and timeline clip IDs.
 - Static Text+ overlay creation.
 - Second-run comp reuse with `comp_created: false`.
 - Fusion comp count unchanged on the second run.
+- Main-window and probe updater share the same clip-identity guard and Fusion
+  writer.
 
-Next gate: validate the main-window `Update Overlay` action, then replace the
-static final text with expression-driven live timing.
+Expression-driven timer validated:
+
+- Source markers are translated with
+  `fusion_frame = source_frame - timeline_source_start`.
+- Text+ starts at the translated `Start` frame.
+- Start evaluates to `0:00.000`.
+- Mid-run advances from Fusion `time`.
+- Finish freezes at the final lap value.
+- Frames after Finish retain the same final value.
+- Sector Text+ nodes begin at their translated marker crossings.
+- Final-sector and lap Text+ nodes begin at the translated `Finish` frame.
+- The blurred translucent panel, light border, monospace text, and per-row
+  merge chain survive comp export.
+- Re-running the updater leaves the Fusion comp count unchanged.
+
+Visual playback layout and committed comparison-data deltas accepted on the
+validated Resolve 21 clip.
 
 - Repeated overlay updates do not create duplicate generated overlays.
 - Overlay identity is deterministic for a course/run or marker snapshot.

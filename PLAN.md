@@ -536,7 +536,8 @@ Media Pool selection, source FPS, source-clip markers, and UI Manager. The
 Phase 3 UI now includes timing preview, commit/update, ignore/unignore, delete,
 course-filtered run management, persisted course/comparison preferences,
 startup diagnostics, and unexpected-error logging. The complete Phase 3
-workflow is accepted for the validated clip. Overlay V1 has begun: static
-Fusion/Text+ creation and deterministic comp reuse are live-validated, and the
-main-window overlay action is enabled with a Media Pool/timeline clip identity
-guard. Expression-driven live timing is the next implementation stage.
+workflow is accepted for the validated clip. Overlay V1 now has deterministic
+Fusion comp reuse, an expression-driven live timer, marker-timed sector and lap
+rows, comparison-aware delta colors, and a blurred translucent panel. Visual
+playback with committed comparison data is accepted for the validated Resolve
+21 clip.

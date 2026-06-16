@@ -95,6 +95,18 @@ class ResolveAdapterTests(unittest.TestCase):
             [("Start", 0), ("S1", 100), ("Finish", 300)],
         )
 
+    def test_media_pool_run_reads_an_explicit_source_clip(self):
+        source_clip = FakeSourceClip("clip-explicit", "Explicit.MP4")
+        adapter = ResolveAdapter(
+            FakeResolve(FakeProjectManager(FakeProject([])))
+        )
+
+        selected = adapter.media_pool_run(source_clip)
+
+        self.assertIs(selected.source_clip, source_clip)
+        self.assertEqual(selected.filename, "Explicit.MP4")
+        self.assertEqual(selected.clip_id, "clip-explicit")
+
     def test_selected_run_input_converts_adapter_selection_for_service(self):
         source_clip = FakeSourceClip()
         resolve = FakeResolve(FakeProjectManager(FakeProject([source_clip])))

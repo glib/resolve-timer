@@ -8,6 +8,8 @@ from resolve_timer.markers import parse_marker_snapshot
 from resolve_timer.models import Course, RawMarker
 from resolve_timer.overlay import (
     FusionOverlayUpdater,
+    build_fusion_overlay_rows,
+    build_live_timer_expression,
     build_overlay_payload,
     final_overlay_rows,
     format_final_overlay_text,
@@ -95,7 +97,7 @@ class OverlayTests(unittest.TestCase):
         self.assertIn("BEST        0:03.000", text)
         self.assertIn("OPTIMAL     0:02.900", text)
 
-    def test_fusion_updater_creates_named_comp_and_static_nodes(self):
+    def test_fusion_updater_creates_named_comp_and_timed_nodes(self):
         payload = self._payload()
         timeline_item = FakeTimelineItem()
 
@@ -105,16 +107,126 @@ class OverlayTests(unittest.TestCase):
         self.assertEqual(result.comp_name, "Resolve Timer - course")
         self.assertEqual(timeline_item.names, ["Resolve Timer - course"])
         comp = timeline_item.comps["Resolve Timer - course"]
-        self.assertEqual(comp.tools["ResolveTimerText"].inputs["StyledText"], result.final_text)
+        self.assertEqual(
+            comp.tools["ResolveTimerText"].expressions["StyledText"],
+            result.live_expression,
+        )
+        self.assertEqual(comp.tools["ResolveTimerText"].inputs["GlobalIn"], 0)
         self.assertIs(
             comp.tools["ResolveTimerMerge"].connections["Background"],
-            comp.tools["MediaIn1"],
+            comp.tools["ResolveTimerPanelBorderMerge"],
         )
         self.assertIs(
             comp.tools["MediaOut1"].connections["Input"],
-            comp.tools["ResolveTimerMerge"],
+            comp.tools["ResolveTimerOptimalMerge"],
         )
         self.assertEqual(comp.tools["MediaOut1"].inputs["ColorGrade"], "Color")
+        self.assertEqual(
+            comp.tools["ResolveTimerPanelBackground"].inputs["TopLeftAlpha"],
+            0.52,
+        )
+        self.assertEqual(
+            comp.tools["ResolveTimerText"].inputs["Font"],
+            "JetBrains Mono",
+        )
+        self.assertEqual(
+            comp.tools["ResolveTimerText"].inputs["Style"],
+            "Medium",
+        )
+        self.assertIs(
+            comp.tools["ResolveTimerPanelBlur"].connections["Input"],
+            comp.tools["MediaIn1"],
+        )
+        self.assertIs(
+            comp.tools["ResolveTimerPanelBlurMerge"].connections["Background"],
+            comp.tools["MediaIn1"],
+        )
+        self.assertIs(
+            comp.tools["ResolveTimerPanelBlurMerge"].connections["Foreground"],
+            comp.tools["ResolveTimerPanelBlur"],
+        )
+        self.assertIs(
+            comp.tools["ResolveTimerPanelBlurMerge"].connections["EffectMask"],
+            comp.tools["ResolveTimerPanelMask"],
+        )
+        self.assertEqual(
+            comp.tools["ResolveTimerPanelBlurMerge"].expressions["Blend"],
+            "(time >= 0) and 1 or 0",
+        )
+        self.assertIs(
+            comp.tools["ResolveTimerPanelMerge"].connections["Background"],
+            comp.tools["ResolveTimerPanelBlurMerge"],
+        )
+        self.assertEqual(
+            comp.tools["ResolveTimerPanelBlur"].inputs["XBlurSize"],
+            12.0,
+        )
+        self.assertEqual(
+            comp.tools["ResolveTimerPanelBorderMask"].inputs["Solid"],
+            0,
+        )
+        self.assertEqual(
+            comp.tools["ResolveTimerPanelBorderMask"].inputs["BorderWidth"],
+            0.0015,
+        )
+        panel_mask = comp.tools["ResolveTimerPanelMask"].inputs
+        self.assertAlmostEqual(panel_mask["Width"], 0.25)
+        self.assertAlmostEqual(panel_mask["Height"], 0.2275)
+        self.assertAlmostEqual(
+            panel_mask["Center"][2] + (panel_mask["Height"] / 2),
+            0.984,
+        )
+        self.assertAlmostEqual(
+            panel_mask["Center"][1] + (panel_mask["Width"] / 2),
+            0.991,
+        )
+        self.assertAlmostEqual(
+            comp.tools["ResolveTimerText"].inputs["Size"],
+            0.0245,
+        )
+        self.assertAlmostEqual(
+            comp.tools["ResolveTimerText"].inputs["Center"][1],
+            0.866,
+        )
+        self.assertAlmostEqual(
+            comp.tools["ResolveTimerS1Text"].inputs["Center"][1],
+            0.8345,
+        )
+        self.assertAlmostEqual(
+            comp.tools["ResolveTimerS1Text"].inputs["Size"],
+            0.0175,
+        )
+        self.assertEqual(
+            comp.tools["ResolveTimerPanelBorderBackground"].inputs[
+                "TopLeftRed"
+            ],
+            0.72,
+        )
+        self.assertEqual(
+            comp.tools["ResolveTimerPanelBorderBackground"].inputs[
+                "TopLeftGreen"
+            ],
+            0.72,
+        )
+        self.assertEqual(
+            comp.tools["ResolveTimerPanelBorderBackground"].inputs[
+                "TopLeftBlue"
+            ],
+            0.72,
+        )
+        self.assertEqual(comp.tools["ResolveTimerS1Text"].inputs["GlobalIn"], 100)
+        self.assertEqual(comp.tools["ResolveTimerS2Text"].inputs["GlobalIn"], 300)
+        self.assertEqual(comp.tools["ResolveTimerLAPText"].inputs["GlobalIn"], 300)
+        self.assertEqual(
+            comp.tools["ResolveTimerS1Delta"].inputs["Red1"],
+            1.0,
+        )
+        self.assertEqual(
+            comp.tools["ResolveTimerS1Delta"].inputs["Green1"],
+            0.76,
+        )
+        self.assertEqual(result.fusion_start_frame, 0)
+        self.assertEqual(result.fusion_finish_frame, 300)
 
     def test_fusion_updater_reuses_existing_comp_and_nodes(self):
         payload = self._payload()
@@ -131,6 +243,52 @@ class OverlayTests(unittest.TestCase):
             timeline_item.comps[second.comp_name].tools["ResolveTimerText"],
             text_tool,
         )
+
+    def test_live_timer_expression_translates_source_frames_and_clamps_finish(self):
+        payload = self._payload()
+
+        expression = build_live_timer_expression(payload, source_start_frame=-25)
+
+        self.assertIn("math.min(time, 325) - 25", expression)
+        self.assertIn("math.max(0", expression)
+        self.assertIn("string.format", expression)
+        self.assertNotIn(r"\nS1", expression)
+
+    def test_fusion_rows_reveal_at_sector_crossings_and_color_deltas(self):
+        course = Course("course", "Course", 2)
+        snapshot = parse_marker_snapshot(
+            [RawMarker("Start", 20), RawMarker("S1", 120), RawMarker("Finish", 330)],
+            course,
+        )
+        timing = compute_timing(snapshot, course, 100.0)
+        payload = build_overlay_payload(
+            course=course,
+            snapshot=snapshot,
+            current_timing=timing,
+            comparison_mode="best_lap",
+            run_id=None,
+            source_fps=100.0,
+            sector_reference_seconds=(1.1, 2.0),
+            best_lap_seconds=3.2,
+            optimal_lap_seconds=3.1,
+        )
+
+        rows = build_fusion_overlay_rows(payload, source_start_frame=10)
+
+        self.assertEqual([row.reveal_frame for row in rows], [110, 320, 320])
+        self.assertEqual(rows[0].delta_text, "-0.100")
+        self.assertEqual(rows[0].delta_color, (0.2, 1.0, 0.45, 1.0))
+        self.assertEqual(rows[1].delta_text, "+0.100")
+        self.assertEqual(rows[1].delta_color, (1.0, 0.3, 0.25, 1.0))
+
+    def test_fusion_updater_rejects_markers_outside_timeline_source_range(self):
+        payload = self._payload()
+        timeline_item = FakeTimelineItem(source_start=50, source_end=400)
+
+        with self.assertRaises(RuntimeError) as raised:
+            FusionOverlayUpdater().update_or_create(timeline_item, payload)
+
+        self.assertIn("Start marker 0 is before timeline source start 50", str(raised.exception))
 
     @staticmethod
     def _payload():
@@ -157,6 +315,8 @@ class FakeTool:
     def __init__(self, name):
         self.name = name
         self.inputs = {}
+        self.expressions = {}
+        self.input_objects = {"StyledText": FakeInput(self, "StyledText")}
         self.connections = {}
         self.comp = None
 
@@ -172,8 +332,23 @@ class FakeTool:
         self.inputs[name] = value
         return True
 
+    def FindInput(self, name):
+        if name not in self.input_objects:
+            self.input_objects[name] = FakeInput(self, name)
+        return self.input_objects[name]
+
     def ConnectInput(self, name, source):
         self.connections[name] = source
+        return True
+
+
+class FakeInput:
+    def __init__(self, tool, name):
+        self.tool = tool
+        self.name = name
+
+    def SetExpression(self, expression):
+        self.tool.expressions[self.name] = expression
         return True
 
 
@@ -207,10 +382,12 @@ class FakeComp:
 
 
 class FakeTimelineItem:
-    def __init__(self):
+    def __init__(self, source_start=0, source_end=300):
         self.names = []
         self.comps = {}
         self.add_count = 0
+        self.source_start = source_start
+        self.source_end = source_end
 
     def GetFusionCompNameList(self):
         return list(self.names)
@@ -232,6 +409,12 @@ class FakeTimelineItem:
 
     def GetFusionCompByName(self, name):
         return self.comps.get(name)
+
+    def GetSourceStartFrame(self):
+        return self.source_start
+
+    def GetSourceEndFrame(self):
+        return self.source_end
 
 
 if __name__ == "__main__":

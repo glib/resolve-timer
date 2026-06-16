@@ -41,7 +41,9 @@ class ResolveAdapter:
             raise ResolveAdapterError(
                 f"Select exactly one Media Pool clip; Resolve reports {len(selected_clips)} selected"
             )
-        source_clip = selected_clips[0]
+        return self.media_pool_run(selected_clips[0])
+
+    def media_pool_run(self, source_clip: object) -> SelectedMediaPoolRun:
         source_marker_map = _call_required(source_clip, "GetMarkers")
         if not isinstance(source_marker_map, dict):
             raise ResolveAdapterError("source clip markers are not a dictionary")

@@ -380,7 +380,7 @@ class UiTests(unittest.TestCase):
 
         self.assertEqual(
             state.status,
-            "Created static overlay Resolve Timer - course",
+            "Created live overlay Resolve Timer - course",
         )
         self.assertIsNone(state.error)
         self.assertEqual(len(updater.calls), 1)

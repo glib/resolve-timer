@@ -74,7 +74,7 @@ from the example. Later installs do not overwrite that data.
 `ResolveTimer` opens the Phase 3 workflow for live validation. It supports
 selection refresh, timing previews, commit/update, ignore/unignore, delete, and
 course-filtered run management. `Update Overlay` now creates or updates the
-validated static Fusion/Text+ overlay on the matching timeline item.
+Fusion/Text+ overlay on the matching timeline item.
 
 The tool also maintains three project-local runtime files:
 
@@ -103,9 +103,13 @@ written to `resolve_fusion_probe.json`.
 Run the probe a second time on the same item. The second result should report
 `"comp_created": false` and leave the Fusion comp count unchanged.
 
-This deterministic static path has been validated in Resolve 21. The main
-window uses the same updater and clip-identity guard. Expression-driven live
-timing remains the next Overlay V1 stage.
+This deterministic path has been validated in Resolve 21. The main window uses
+the same updater and clip-identity guard. The live timer starts at the source
+`Start` marker, advances using Fusion item time, and freezes at `Finish`.
+Sector rows reveal at their marker crossings, the lap row reveals at `Finish`,
+and the overlay uses aligned monospace text on a blurred translucent panel with
+a light border and comparison-aware delta colors. This path has been visually
+validated with committed comparison data on the Resolve 21 test timeline.
 
 ## CLI Smoke Tests
 
