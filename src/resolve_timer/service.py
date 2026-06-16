@@ -87,6 +87,8 @@ class TimerService:
         self.database.save(path)
 
     def add_course(self, course_id: str, name: str, sector_count: int) -> Course:
+        course_id = _clean_required("course_id", course_id)
+        name = _clean_required("name", name)
         if sector_count < 1:
             raise ValueError("sector_count must be at least 1")
         for existing in self.database.courses:
@@ -95,6 +97,42 @@ class TimerService:
         course = Course(course_id, name, sector_count)
         self.database.courses.append(course)
         return course
+
+    def update_course(
+        self,
+        course_id: str,
+        *,
+        name: str | None = None,
+        sector_count: int | None = None,
+    ) -> Course:
+        course_index, existing = self._course_index_and_record(course_id)
+        updated_name = existing.name if name is None else _clean_required("name", name)
+        updated_sector_count = existing.sector_count if sector_count is None else int(sector_count)
+        if updated_sector_count < 1:
+            raise ValueError("sector_count must be at least 1")
+        if updated_sector_count != existing.sector_count and self.course_run_count(course_id) > 0:
+            raise ValueError(
+                f"cannot change sector_count for course {course_id}; committed runs exist"
+            )
+        updated = Course(existing.id, updated_name, updated_sector_count)
+        self.database.courses[course_index] = updated
+        return updated
+
+    def delete_course(self, course_id: str) -> None:
+        course_index, _existing = self._course_index_and_record(course_id)
+        run_count = self.course_run_count(course_id)
+        if run_count > 0:
+            raise ValueError(f"cannot delete course {course_id}; {run_count} run(s) exist")
+        del self.database.courses[course_index]
+
+    def course_run_count(self, course_id: str) -> int:
+        return sum(1 for run in self.database.runs if run.course_id == course_id)
+
+    def _course_index_and_record(self, course_id: str) -> tuple[int, Course]:
+        for index, course in enumerate(self.database.courses):
+            if course.id == course_id:
+                return index, course
+        raise ValueError(f"course not found: {course_id}")
 
     def normalize_fingerprints(self) -> int:
         updated = 0
@@ -251,6 +289,13 @@ def _delta(duration_seconds: float, reference_seconds: float | None) -> float | 
     if reference_seconds is None:
         return None
     return duration_seconds - reference_seconds
+
+
+def _clean_required(field: str, value: str) -> str:
+    cleaned = str(value).strip()
+    if not cleaned:
+        raise ValueError(f"{field} is required")
+    return cleaned
 
 
 def _next_run_id(runs: list[RunRecord], run_date: str) -> str:

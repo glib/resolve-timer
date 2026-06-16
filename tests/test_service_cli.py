@@ -166,6 +166,38 @@ class ServiceCliTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             service.add_course("new_course", "Duplicate", 3)
 
+    def test_add_course_rejects_blank_fields(self):
+        service = TimerService(TimerDatabase([], []))
+
+        with self.assertRaises(ValueError):
+            service.add_course(" ", "Name", 2)
+        with self.assertRaises(ValueError):
+            service.add_course("course", " ", 2)
+
+    def test_update_and_delete_unreferenced_course(self):
+        other = Course("other", "Other", 2)
+        service = TimerService(TimerDatabase([self.course, other], []))
+
+        updated = service.update_course("other", name="Renamed", sector_count=4)
+        service.delete_course("other")
+
+        self.assertEqual(updated, Course("other", "Renamed", 4))
+        self.assertEqual(service.database.courses, [self.course])
+
+    def test_course_mutations_reject_referenced_sector_change_and_delete(self):
+        service = TimerService(TimerDatabase([self.course], []))
+        service.commit_new_run(self.selected, run_id="run_custom")
+
+        renamed = service.update_course("course", name="Renamed")
+
+        self.assertEqual(renamed.name, "Renamed")
+        with self.assertRaises(ValueError) as sector_change:
+            service.update_course("course", sector_count=3)
+        with self.assertRaises(ValueError) as delete:
+            service.delete_course("course")
+        self.assertIn("cannot change sector_count", str(sector_change.exception))
+        self.assertIn("cannot delete course course", str(delete.exception))
+
     def test_normalize_fingerprints_updates_missing_or_stale_values(self):
         service = TimerService(TimerDatabase([self.course], []))
         run = service.commit_new_run(
@@ -727,6 +759,96 @@ class ServiceCliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("Added course new_course", stdout.getvalue())
         self.assertEqual(loaded.courses[0], Course("new_course", "New Course", 3))
+
+    def test_cli_update_and_delete_course(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "timer_db.yaml"
+            TimerDatabase(
+                [
+                    Course("course", "Course", 2),
+                    Course("other", "Other", 2),
+                ],
+                [],
+            ).save(db_path)
+
+            stdout = StringIO()
+            with patch("sys.stdout", stdout):
+                update_exit = main(
+                    [
+                        "--db",
+                        str(db_path),
+                        "update-course",
+                        "--id",
+                        "other",
+                        "--name",
+                        "Renamed",
+                        "--sectors",
+                        "4",
+                    ]
+                )
+
+            stdout = StringIO()
+            with patch("sys.stdout", stdout):
+                delete_exit = main(
+                    [
+                        "--db",
+                        str(db_path),
+                        "delete-course",
+                        "--id",
+                        "other",
+                    ]
+                )
+
+            loaded = TimerDatabase.load(db_path)
+
+        self.assertEqual(update_exit, 0)
+        self.assertEqual(delete_exit, 0)
+        self.assertEqual(loaded.courses, [Course("course", "Course", 2)])
+
+    def test_cli_course_mutations_reject_referenced_course_without_traceback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "timer_db.yaml"
+            service = TimerService(TimerDatabase([self.course], []))
+            service.commit_new_run(self.selected, run_id="run_custom")
+            service.save(db_path)
+            original = db_path.read_text(encoding="utf-8")
+
+            stderr = StringIO()
+            with patch("sys.stderr", stderr):
+                update_exit = main(
+                    [
+                        "--db",
+                        str(db_path),
+                        "update-course",
+                        "--id",
+                        "course",
+                        "--sectors",
+                        "3",
+                    ]
+                )
+            update_error = stderr.getvalue()
+
+            stderr = StringIO()
+            with patch("sys.stderr", stderr):
+                delete_exit = main(
+                    [
+                        "--db",
+                        str(db_path),
+                        "delete-course",
+                        "--id",
+                        "course",
+                    ]
+                )
+            delete_error = stderr.getvalue()
+            current = db_path.read_text(encoding="utf-8")
+
+        self.assertEqual(update_exit, 1)
+        self.assertEqual(delete_exit, 1)
+        self.assertIn("Error: cannot change sector_count", update_error)
+        self.assertIn("Error: cannot delete course course", delete_error)
+        self.assertNotIn("Traceback", update_error)
+        self.assertNotIn("Traceback", delete_error)
+        self.assertEqual(current, original)
 
 
 if __name__ == "__main__":

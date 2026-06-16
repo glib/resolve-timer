@@ -18,6 +18,10 @@ def validate_database(database: TimerDatabase) -> list[str]:
 
     courses_by_id = {course.id: course for course in database.courses}
     for course in database.courses:
+        if not course.id.strip():
+            errors.append("course id is required")
+        if not course.name.strip():
+            errors.append(f"course {course.id} name is required")
         if course.sector_count < 1:
             errors.append(f"course {course.id} sector_count must be at least 1")
 

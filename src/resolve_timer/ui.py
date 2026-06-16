@@ -119,6 +119,7 @@ class ResolveTimerWindow:
         self._pending_update_run_id: str | None = None
         self._pending_delete_run_id: str | None = None
         self._manage_window: ResolveRunManagementWindow | None = None
+        self._course_window: ResolveCourseManagementWindow | None = None
         self.window = self._build_window()
         self.items = self.window.GetItems()
         self._configure_timing_table()
@@ -172,6 +173,14 @@ class ResolveTimerWindow:
                                 {
                                     "ID": "CourseCombo",
                                     "FixedSize": [240, 28],
+                                    "Weight": 0,
+                                }
+                            ),
+                            ui.Button(
+                                {
+                                    "ID": "CoursesButton",
+                                    "Text": "Courses",
+                                    "FixedSize": [82, 28],
                                     "Weight": 0,
                                 }
                             ),
@@ -269,7 +278,7 @@ class ResolveTimerWindow:
                             ui.Button({"ID": "UpdateButton", "Text": "Update Existing"}),
                             ui.Button({"ID": "IgnoreButton", "Text": "Ignore Run"}),
                             ui.Button({"ID": "DeleteButton", "Text": "Delete Run"}),
-                            ui.Button({"ID": "ManageButton", "Text": "Manage"}),
+                            ui.Button({"ID": "ManageButton", "Text": "Manage Runs"}),
                             ui.Button(
                                 {
                                     "ID": "CancelUpdateButton",
@@ -387,6 +396,7 @@ class ResolveTimerWindow:
         self.window.On.CancelDeleteButton.Clicked = self._on_cancel_delete
         self.window.On.ConfirmDeleteButton.Clicked = self._on_confirm_delete
         self.window.On.ManageButton.Clicked = self._on_manage
+        self.window.On.CoursesButton.Clicked = self._on_courses
         self.window.On.OverlayButton.Clicked = self._on_overlay
         self.window.On.OverlayAllButton.Clicked = self._on_overlay_all
         self.window.On.CourseCombo.CurrentIndexChanged = self._on_course_changed
@@ -432,6 +442,7 @@ class ResolveTimerWindow:
             )
             self.items["DeleteButton"].Enabled = state.can_delete
             self.items["ManageButton"].Enabled = bool(state.selected_course_id)
+            self.items["CoursesButton"].Enabled = True
             self.items["OverlayButton"].Enabled = state.can_update_overlay
             self.items["OverlayAllButton"].Enabled = state.can_update_overlay
             if not state.can_update:
@@ -550,6 +561,22 @@ class ResolveTimerWindow:
         self._manage_window = None
         self.render(state)
 
+    def _on_courses(self, _event) -> None:
+        if self._course_window is not None:
+            self._course_window.show()
+            return
+        self._course_window = ResolveCourseManagementWindow(
+            self.ui,
+            self.dispatcher,
+            self.controller,
+            self._on_courses_closed,
+        )
+        self._course_window.show()
+
+    def _on_courses_closed(self, state: ResolveTimerViewState) -> None:
+        self._course_window = None
+        self.render(state)
+
     def _on_overlay(self, _event) -> None:
         self.render(self.controller.update_overlay())
 
@@ -601,6 +628,339 @@ class ResolveTimerWindow:
         mode = "best_lap" if index == 0 else "optimal"
         if self._state is None or mode != self._state.comparison_mode:
             self.render(self.controller.set_comparison_mode(mode))
+
+
+class ResolveCourseManagementWindow:
+    def __init__(self, ui, dispatcher, controller, on_close):
+        self.ui = ui
+        self.dispatcher = dispatcher
+        self.controller = controller
+        self.on_close = on_close
+        self.selected_course_id: str | None = None
+        self.pending_delete_course_id: str | None = None
+        self.rows = ()
+        self.window = self._build_window()
+        self.items = self.window.GetItems()
+        self._configure_table()
+        self._bind_events()
+
+    def _build_window(self):
+        return self.dispatcher.AddWindow(
+            {
+                "ID": "ResolveTimerCoursesWindow",
+                "WindowTitle": "Resolve Timer - Manage Courses",
+                "Geometry": [260, 160, 760, 500],
+            },
+            self.ui.VGroup(
+                {"Spacing": 8},
+                [
+                    self.ui.Tree(
+                        {
+                            "ID": "CoursesTree",
+                            "Weight": 1,
+                            "ColumnCount": 4,
+                            "HeaderHidden": False,
+                            "RootIsDecorated": False,
+                            "ItemsExpandable": False,
+                            "SortingEnabled": False,
+                            "SelectionMode": "SingleSelection",
+                        }
+                    ),
+                    self.ui.HGroup(
+                        {"Weight": 0, "Spacing": 6},
+                        [
+                            self.ui.Label(
+                                {
+                                    "Text": "ID",
+                                    "FixedSize": [50, 26],
+                                    "Alignment": {"AlignVCenter": True},
+                                }
+                            ),
+                            self.ui.LineEdit(
+                                {
+                                    "ID": "CourseIdEdit",
+                                    "PlaceholderText": "course_id",
+                                    "MinimumSize": [170, 26],
+                                }
+                            ),
+                            self.ui.Label(
+                                {
+                                    "Text": "Name",
+                                    "FixedSize": [50, 26],
+                                    "Alignment": {"AlignVCenter": True},
+                                }
+                            ),
+                            self.ui.LineEdit(
+                                {
+                                    "ID": "CourseNameEdit",
+                                    "PlaceholderText": "Course name",
+                                    "MinimumSize": [220, 26],
+                                }
+                            ),
+                        ],
+                    ),
+                    self.ui.HGroup(
+                        {"Weight": 0, "Spacing": 6},
+                        [
+                            self.ui.Label(
+                                {
+                                    "Text": "Sectors",
+                                    "FixedSize": [50, 26],
+                                    "Alignment": {"AlignVCenter": True},
+                                }
+                            ),
+                            self.ui.LineEdit(
+                                {
+                                    "ID": "CourseSectorsEdit",
+                                    "PlaceholderText": "4",
+                                    "FixedSize": [80, 26],
+                                }
+                            ),
+                            self.ui.HGap(0, 1),
+                        ],
+                    ),
+                    self.ui.Label(
+                        {
+                            "ID": "CoursesStatusLabel",
+                            "Text": "Select a course, or enter a new one.",
+                            "WordWrap": True,
+                        }
+                    ),
+                    self.ui.HGroup(
+                        {"Weight": 0, "Spacing": 6},
+                        [
+                            self.ui.Button({"ID": "CourseAddButton", "Text": "Add"}),
+                            self.ui.Button(
+                                {
+                                    "ID": "CourseUpdateButton",
+                                    "Text": "Update",
+                                    "Enabled": False,
+                                }
+                            ),
+                            self.ui.Button(
+                                {
+                                    "ID": "CourseDeleteButton",
+                                    "Text": "Delete",
+                                    "Enabled": False,
+                                }
+                            ),
+                            self.ui.Button(
+                                {
+                                    "ID": "CourseCancelDeleteButton",
+                                    "Text": "Cancel",
+                                    "Visible": False,
+                                }
+                            ),
+                            self.ui.Button(
+                                {
+                                    "ID": "CourseConfirmDeleteButton",
+                                    "Text": "Confirm Delete",
+                                    "Visible": False,
+                                }
+                            ),
+                            self.ui.Button({"ID": "CourseClearButton", "Text": "Clear"}),
+                            self.ui.Button({"ID": "CourseCloseButton", "Text": "Close"}),
+                        ],
+                    ),
+                ],
+            ),
+        )
+
+    def _configure_table(self) -> None:
+        tree = self.items["CoursesTree"]
+        tree.SetHeaderLabels(["Course ID", "Name", "Sectors", "Runs"])
+        for index, width in enumerate((190, 280, 80, 70)):
+            tree.ColumnWidth[index] = width
+
+    def _bind_events(self) -> None:
+        self.window.On.ResolveTimerCoursesWindow.Close = self._close
+        self.window.On.CourseCloseButton.Clicked = self._close
+        self.window.On.CoursesTree.ItemClicked = self._on_item_clicked
+        self.window.On.CourseAddButton.Clicked = self._on_add
+        self.window.On.CourseUpdateButton.Clicked = self._on_update
+        self.window.On.CourseDeleteButton.Clicked = self._on_delete
+        self.window.On.CourseCancelDeleteButton.Clicked = self._cancel_delete
+        self.window.On.CourseConfirmDeleteButton.Clicked = self._confirm_delete
+        self.window.On.CourseClearButton.Clicked = self._clear_selection
+
+    def show(self) -> None:
+        self._refresh_rows()
+        self.window.Show()
+
+    def _refresh_rows(self, status: str | None = None) -> None:
+        try:
+            self.rows = self.controller.course_rows()
+        except Exception as exc:
+            self.rows = ()
+            status = f"Unable to load courses: {exc}"
+        self.selected_course_id = None
+        self.pending_delete_course_id = None
+        tree = self.items["CoursesTree"]
+        tree.Clear()
+        for row in self.rows:
+            item = tree.NewItem()
+            values = (
+                row.course_id,
+                row.name,
+                str(row.sector_count),
+                str(row.run_count),
+            )
+            for column, value in enumerate(values):
+                item.Text[column] = value
+            tree.AddTopLevelItem(item)
+        self.items["CoursesStatusLabel"].Text = status or (
+            f"{len(self.rows)} course(s)."
+        )
+        self._hide_delete_confirmation()
+        self._clear_fields()
+        self._render_selection()
+
+    def _on_item_clicked(self, event) -> None:
+        item = event.get("item") or event.get("Item")
+        if item is None:
+            item = getattr(self.items["CoursesTree"], "CurrentItem", None)
+        self._select_course_id(None if item is None else str(item.Text[0]))
+
+    def _select_course_id(self, course_id: str | None, *, announce: bool = True) -> None:
+        self.selected_course_id = course_id
+        row = self._selected_row()
+        if row is None:
+            self._clear_fields()
+        else:
+            _set_widget_text(self.items["CourseIdEdit"], row.course_id)
+            _set_widget_text(self.items["CourseNameEdit"], row.name)
+            _set_widget_text(self.items["CourseSectorsEdit"], str(row.sector_count))
+        self._hide_delete_confirmation()
+        self._render_selection()
+        if announce and row is not None and row.run_count > 0:
+            self.items["CoursesStatusLabel"].Text = (
+                f"{row.course_id} has {row.run_count} run(s); delete and sector changes are blocked."
+            )
+
+    def _clear_selection(self, _event=None) -> None:
+        self.selected_course_id = None
+        self.pending_delete_course_id = None
+        self._hide_delete_confirmation()
+        self._clear_fields()
+        self._render_selection()
+        self.items["CoursesStatusLabel"].Text = "Enter a new course."
+
+    def _clear_fields(self) -> None:
+        _set_widget_text(self.items["CourseIdEdit"], "")
+        _set_widget_text(self.items["CourseNameEdit"], "")
+        _set_widget_text(self.items["CourseSectorsEdit"], "")
+
+    def _render_selection(self) -> None:
+        row = self._selected_row()
+        has_selection = row is not None
+        self.items["CourseIdEdit"].Enabled = not has_selection
+        self.items["CourseUpdateButton"].Enabled = has_selection
+        self.items["CourseDeleteButton"].Enabled = bool(
+            has_selection and row is not None and row.run_count == 0
+        )
+        self.window.RecalcLayout()
+
+    def _selected_row(self):
+        return next(
+            (row for row in self.rows if row.course_id == self.selected_course_id),
+            None,
+        )
+
+    def _on_add(self, _event) -> None:
+        course_id = _widget_text(self.items["CourseIdEdit"]).strip()
+        name = _widget_text(self.items["CourseNameEdit"]).strip()
+        sector_count = self._sector_count_from_field()
+        if sector_count is None:
+            return
+        state = self.controller.add_course(course_id, name, sector_count)
+        self._refresh_rows(_state_status(state))
+        if any(row.course_id == course_id for row in self.rows):
+            self._select_course_id(course_id, announce=False)
+
+    def _on_update(self, _event) -> None:
+        row = self._selected_row()
+        if row is None:
+            return
+        name = _widget_text(self.items["CourseNameEdit"]).strip()
+        sector_count = self._sector_count_from_field()
+        if sector_count is None:
+            return
+        state = self.controller.update_course(
+            row.course_id,
+            name=name,
+            sector_count=sector_count,
+        )
+        self._refresh_rows(_state_status(state))
+        if any(item.course_id == row.course_id for item in self.rows):
+            self._select_course_id(row.course_id, announce=False)
+
+    def _sector_count_from_field(self) -> int | None:
+        raw = _widget_text(self.items["CourseSectorsEdit"]).strip()
+        try:
+            return int(raw)
+        except ValueError:
+            self.items["CoursesStatusLabel"].Text = "Sectors must be a whole number."
+            return None
+
+    def _on_delete(self, _event) -> None:
+        row = self._selected_row()
+        if row is None:
+            return
+        if row.run_count > 0:
+            self.items["CoursesStatusLabel"].Text = (
+                f"Cannot delete {row.course_id}; {row.run_count} run(s) exist."
+            )
+            return
+        self.pending_delete_course_id = row.course_id
+        self.items["CoursesStatusLabel"].Text = f"Confirm deleting {row.course_id}."
+        self.items["CourseDeleteButton"].Visible = False
+        self.items["CourseCancelDeleteButton"].Visible = True
+        self.items["CourseConfirmDeleteButton"].Visible = True
+        self.window.RecalcLayout()
+
+    def _cancel_delete(self, _event) -> None:
+        self._hide_delete_confirmation()
+
+    def _confirm_delete(self, _event) -> None:
+        course_id = self.pending_delete_course_id
+        self._hide_delete_confirmation()
+        if course_id:
+            state = self.controller.delete_course(course_id)
+            self._refresh_rows(_state_status(state))
+
+    def _hide_delete_confirmation(self) -> None:
+        self.pending_delete_course_id = None
+        self.items["CourseCancelDeleteButton"].Visible = False
+        self.items["CourseConfirmDeleteButton"].Visible = False
+        self.items["CourseDeleteButton"].Visible = True
+        self.window.RecalcLayout()
+
+    def _close(self, _event) -> None:
+        self.window.Hide()
+        self.on_close(self.controller.refresh_selection())
+
+
+def _widget_text(widget) -> str:
+    text = getattr(widget, "Text", None)
+    if text is not None:
+        return str(text)
+    plain_text = getattr(widget, "PlainText", None)
+    if plain_text is not None:
+        return str(plain_text)
+    return ""
+
+
+def _set_widget_text(widget, value: str) -> None:
+    if hasattr(widget, "Text"):
+        widget.Text = value
+    elif hasattr(widget, "PlainText"):
+        widget.PlainText = value
+
+
+def _state_status(state: ResolveTimerViewState) -> str:
+    if state.error is None:
+        return state.status
+    return f"{state.status}: {state.error}"
 
 
 class ResolveRunManagementWindow:

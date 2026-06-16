@@ -31,6 +31,16 @@ def main(argv: list[str] | None = None) -> int:
     add_course.add_argument("--sectors", required=True, type=int)
     add_course.set_defaults(func=_cmd_add_course)
 
+    update_course = subparsers.add_parser("update-course", help="Update course metadata")
+    update_course.add_argument("--id", required=True, dest="course_id")
+    update_course.add_argument("--name")
+    update_course.add_argument("--sectors", type=int)
+    update_course.set_defaults(func=_cmd_update_course)
+
+    delete_course = subparsers.add_parser("delete-course", help="Delete a course with no runs")
+    delete_course.add_argument("--id", required=True, dest="course_id")
+    delete_course.set_defaults(func=_cmd_delete_course)
+
     validate = subparsers.add_parser("validate-db", help="Validate database consistency")
     validate.set_defaults(func=_cmd_validate_db)
 
@@ -113,6 +123,28 @@ def _cmd_add_course(args: argparse.Namespace) -> int:
     course = service.add_course(args.course_id, args.name, args.sectors)
     service.save(args.db)
     print(f"Added course {course.id}")
+    return 0
+
+
+def _cmd_update_course(args: argparse.Namespace) -> int:
+    if args.name is None and args.sectors is None:
+        raise ValueError("update-course requires --name or --sectors")
+    service = TimerService.load(args.db)
+    course = service.update_course(
+        args.course_id,
+        name=args.name,
+        sector_count=args.sectors,
+    )
+    service.save(args.db)
+    print(f"Updated course {course.id}")
+    return 0
+
+
+def _cmd_delete_course(args: argparse.Namespace) -> int:
+    service = TimerService.load(args.db)
+    service.delete_course(args.course_id)
+    service.save(args.db)
+    print(f"Deleted course {args.course_id}")
     return 0
 
 

@@ -39,6 +39,14 @@ class RunRowState:
 
 
 @dataclass(frozen=True)
+class CourseRowState:
+    course_id: str
+    name: str
+    sector_count: int
+    run_count: int
+
+
+@dataclass(frozen=True)
 class ResolveTimerViewState:
     database_path: str
     courses: tuple[tuple[str, str], ...]
@@ -220,6 +228,56 @@ class ResolveTimerController:
         except Exception as exc:
             return self._mutation_error("Delete failed", exc)
 
+    def add_course(self, course_id: str, name: str, sector_count: int) -> ResolveTimerViewState:
+        try:
+            service = TimerService.load(self.database_path)
+            course = service.add_course(course_id, name, sector_count)
+            service.save(self.database_path)
+            self.service = TimerService.load(self.database_path)
+            self.selected_course_id = course.id
+            state = self._persist_preferences(self.refresh_selection())
+            return _with_status(state, f"Added course {course.id}")
+        except Exception as exc:
+            return self._mutation_error("Course add failed", exc)
+
+    def update_course(
+        self,
+        course_id: str,
+        *,
+        name: str | None = None,
+        sector_count: int | None = None,
+    ) -> ResolveTimerViewState:
+        try:
+            service = TimerService.load(self.database_path)
+            course = service.update_course(
+                course_id,
+                name=name,
+                sector_count=sector_count,
+            )
+            service.save(self.database_path)
+            self.service = TimerService.load(self.database_path)
+            state = self._persist_preferences(self.refresh_selection())
+            return _with_status(state, f"Updated course {course.id}")
+        except Exception as exc:
+            return self._mutation_error("Course update failed", exc)
+
+    def delete_course(self, course_id: str) -> ResolveTimerViewState:
+        try:
+            service = TimerService.load(self.database_path)
+            service.delete_course(course_id)
+            service.save(self.database_path)
+            self.service = TimerService.load(self.database_path)
+            if self.selected_course_id == course_id:
+                self.selected_course_id = (
+                    self.service.database.courses[0].id
+                    if self.service.database.courses
+                    else None
+                )
+            state = self._persist_preferences(self.refresh_selection())
+            return _with_status(state, f"Deleted course {course_id}")
+        except Exception as exc:
+            return self._mutation_error("Course delete failed", exc)
+
     def update_overlay(self) -> ResolveTimerViewState:
         try:
             service = self._overlay_service()
@@ -298,6 +356,18 @@ class ResolveTimerController:
                 )
             )
         return tuple(rows)
+
+    def course_rows(self) -> tuple[CourseRowState, ...]:
+        service = TimerService.load(self.database_path)
+        return tuple(
+            CourseRowState(
+                course_id=course.id,
+                name=course.name,
+                sector_count=course.sector_count,
+                run_count=service.course_run_count(course.id),
+            )
+            for course in service.database.courses
+        )
 
     def _preview_state(
         self,

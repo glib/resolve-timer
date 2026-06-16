@@ -40,6 +40,9 @@ ongoing manual compatibility check.
 - UI Manager and UIDispatcher capability probe passes.
 - UI opens, closes, and reopens without a stale dispatcher or duplicate window.
 - Course can be selected.
+- Courses can be added, renamed, and deleted when no runs reference them.
+- Sector-count edits and course deletion are blocked when runs reference the
+  course.
 - Current clip markers can be refreshed and previewed.
 - Selection changes while the window is open are handled by Refresh Media Pool
   Preview.

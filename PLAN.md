@@ -539,8 +539,10 @@ database management, Resolve adapter boundary tests with fakes, and overlay
 payload/text previews. Resolve 21 live testing has validated selected timeline
 Media Pool selection, source FPS, source-clip markers, and UI Manager. The
 Phase 3 UI now includes timing preview, commit/update, ignore/unignore, delete,
-course-filtered run management, persisted course/comparison preferences,
-startup diagnostics, and unexpected-error logging. The complete Phase 3
+course management, course-filtered run management, persisted course/comparison
+preferences, startup diagnostics, and unexpected-error logging. Course IDs are
+stable after creation; course names can be edited; sector-count edits and
+deletion are blocked once runs reference the course. The complete Phase 3
 workflow is accepted for the validated clip. Overlay V1 now has deterministic
 Fusion comp reuse, an expression-driven live timer, marker-timed sector and lap
 rows, comparison-aware delta colors, and a blurred translucent panel. Visual

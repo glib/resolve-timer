@@ -175,7 +175,12 @@ class DatabaseStatsMatchingTests(unittest.TestCase):
         self.assertEqual(validate_database(valid), [])
 
         invalid = TimerDatabase(
-            [self.course, Course("course", "Duplicate", 2)],
+            [
+                self.course,
+                Course("course", "Duplicate", 2),
+                Course("", "Blank ID", 2),
+                Course("blank_name", " ", 2),
+            ],
             [
                 run_record("run_a", self.frames_a),
                 run_record("run_a", {"Start": 0, "Finish": 100}),
@@ -201,6 +206,8 @@ class DatabaseStatsMatchingTests(unittest.TestCase):
         errors = validate_database(invalid)
 
         self.assertIn("duplicate course id: course", errors)
+        self.assertIn("course id is required", errors)
+        self.assertIn("course blank_name name is required", errors)
         self.assertIn("duplicate run id: run_a", errors)
         self.assertIn("run run_a: missing marker S1", errors)
         self.assertIn("run missing_course references missing course missing", errors)

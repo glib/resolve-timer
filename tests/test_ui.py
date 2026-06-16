@@ -431,6 +431,69 @@ class UiTests(unittest.TestCase):
         self.assertFalse(rows[0].ignored)
         self.assertTrue(rows[0].has_clip_id)
 
+    def test_controller_adds_updates_and_deletes_courses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "timer_db.yaml"
+            TimerDatabase([], []).save(db_path)
+            controller = ResolveTimerController(db_path, FakeControllerAdapter())
+            initial = controller.initialize()
+
+            added = controller.add_course("course", "Course", 2)
+            rows_after_add = controller.course_rows()
+            updated = controller.update_course("course", name="Renamed", sector_count=3)
+            rows_after_update = controller.course_rows()
+            deleted = controller.delete_course("course")
+            loaded = TimerDatabase.load(db_path)
+
+        self.assertEqual(initial.status, "No courses configured")
+        self.assertEqual(added.status, "Added course course")
+        self.assertIsNone(added.error)
+        self.assertEqual(rows_after_add[0].course_id, "course")
+        self.assertEqual(rows_after_add[0].run_count, 0)
+        self.assertEqual(updated.status, "Updated course course")
+        self.assertEqual(rows_after_update[0].name, "Renamed")
+        self.assertEqual(rows_after_update[0].sector_count, 3)
+        self.assertEqual(deleted.status, "Deleted course course")
+        self.assertIsNone(deleted.selected_course_id)
+        self.assertEqual(loaded.courses, [])
+
+    def test_controller_blocks_referenced_course_mutations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "timer_db.yaml"
+            TimerDatabase([Course("course", "Course", 2)], []).save(db_path)
+            controller = ResolveTimerController(db_path, FakeControllerAdapter())
+            controller.initialize()
+            controller.commit_new_run()
+
+            sector_change = controller.update_course("course", sector_count=3)
+            delete = controller.delete_course("course")
+            rows = controller.course_rows()
+
+        self.assertEqual(sector_change.status, "Course update failed")
+        self.assertIn("cannot change sector_count", sector_change.error)
+        self.assertEqual(delete.status, "Course delete failed")
+        self.assertIn("cannot delete course course", delete.error)
+        self.assertEqual(rows[0].run_count, 1)
+
+    def test_courses_handler_opens_course_management_window(self):
+        window = ResolveTimerWindow.__new__(ResolveTimerWindow)
+        manager = Mock()
+        window._course_window = None
+        window.ui = object()
+        window.dispatcher = object()
+        window.controller = Mock()
+
+        with patch("resolve_timer.ui.ResolveCourseManagementWindow", return_value=manager) as cls:
+            window._on_courses({})
+
+        cls.assert_called_once_with(
+            window.ui,
+            window.dispatcher,
+            window.controller,
+            window._on_courses_closed,
+        )
+        manager.show.assert_called_once_with()
+
     def test_controller_updates_current_overlay_from_timeline_item(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "timer_db.yaml"

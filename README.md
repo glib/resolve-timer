@@ -77,11 +77,12 @@ recopy is required. On first install, the installer also creates `timer_db.yaml`
 from the example. Later installs do not overwrite that data.
 
 `ResolveTimer` opens the Phase 3 workflow for live validation. It supports
-selection refresh, timing previews, commit/update, ignore/unignore, delete, and
-course-filtered run management. `Update Clip Under Playhead` creates or updates
-the Fusion/Text+ overlay on the timeline clip under the playhead. `Update All
-Timeline Clips` scans the current timeline's video tracks and updates every
-clip whose source clip has valid markers for the selected course.
+selection refresh, timing previews, commit/update, ignore/unignore, delete,
+course management, and course-filtered run management. `Update Clip Under
+Playhead` creates or updates the Fusion/Text+ overlay on the timeline clip
+under the playhead. `Update All Timeline Clips` scans the current timeline's
+video tracks and updates every clip whose source clip has valid markers for the
+selected course.
 
 The tool also maintains three project-local runtime files:
 
@@ -122,6 +123,8 @@ path has been visually validated with committed comparison data on the Resolve
 ```powershell
 resolve-timer --db examples/timer_db.yaml courses
 resolve-timer --db examples/timer_db.yaml add-course --id lower_whistler_a_line --name "Lower Whistler A-Line" --sectors 4
+resolve-timer --db examples/timer_db.yaml update-course --id lower_whistler_a_line --name "Lower Whistler A-Line" --sectors 4
+resolve-timer --db examples/timer_db.yaml delete-course --id lower_whistler_a_line
 resolve-timer --db examples/timer_db.yaml validate-db
 resolve-timer --db examples/timer_db.yaml normalize-db
 resolve-timer --db examples/timer_db.yaml preview --course lower_whistler_a_line --markers markers.csv --filename GX010123.MP4 --fps 59.94
