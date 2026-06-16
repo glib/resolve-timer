@@ -9,14 +9,11 @@
 - `update-run` preserves ignored state and rejects course mismatches.
 - Top-level `resolve_timer` imports expose pure timing/marker helpers only.
 
-## Phase 2: Resolve API Probe
+## Phase 2: Resolve API Baseline
 
-- Run `scripts/ResolveProbe.py` inside Resolve with exactly one Media Pool clip
-  selected.
-- Save the generated `resolve_probe.json` artifact with the test notes.
-- Confirm selected Media Pool clip, marker payload shape, FPS property, and clip
-  identity. Timeline fields are diagnostic only for later overlay placement.
-- Record Resolve version/build from the probe output.
+- Confirm selected Media Pool clip access, marker payload shape, FPS property,
+  and clip identity in the supported Resolve version.
+- Record Resolve version/build with the manual validation notes.
 
 Validated baseline:
 
@@ -37,7 +34,6 @@ layout, open/close/reopen, timing preview, run actions, run management, and
 preference restoration. The full FPS and malformed-marker matrix remains an
 ongoing manual compatibility check.
 
-- UI Manager and UIDispatcher capability probe passes.
 - UI opens, closes, and reopens without a stale dispatcher or duplicate window.
 - Course can be selected.
 - Courses can be added, renamed, and deleted when no runs reference them.
@@ -69,7 +65,7 @@ Validated in Resolve 21:
 - Static Text+ overlay creation.
 - Second-run comp reuse with `comp_created: false`.
 - Fusion comp count unchanged on the second run.
-- Main-window and probe updater share the same Fusion writer.
+- Overlay updates use the production Fusion writer.
 
 Expression-driven timer validated:
 

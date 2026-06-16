@@ -477,7 +477,7 @@ Manual in Resolve:
 
 ### 10. Delivery Sequence
 
-1. Runtime/UI Manager capability probe.
+1. Resolve runtime and UI Manager validation.
 2. Controller, view state, and fake-boundary tests.
 3. Read-only main window.
 4. Live Resolve validation of refresh and marker errors.
@@ -503,8 +503,8 @@ Manual in Resolve:
 
 ## Open Technical Risks
 
-- UI Manager availability and event-loop behavior under the Scripts menu needs
-  a live capability probe.
+- UI Manager availability and event-loop behavior under the Scripts menu need
+  live Resolve validation.
 - Exact Fusion expression syntax/control wiring needs validation inside Resolve.
 - Updating an existing Fusion comp without rebuilding nodes needs proof-of-concept.
 - Creating the overlay timeline item/clip at the exact selected source clip position needs Resolve API testing.

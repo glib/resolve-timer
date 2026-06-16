@@ -41,14 +41,22 @@ if (Test-Path -LiteralPath $destination) {
 
 New-Item -ItemType Directory -Path $destination -Force | Out-Null
 
-foreach ($scriptName in @(
+$staleLaunchers = @(
     "ResolveFusionProbe.py",
     "ResolveProbe.py",
     "ResolveRuntime.py",
-    "ResolveTimer.py",
     "ResolveUILayoutProbe.py",
     "ResolveUIProbe.py"
-)) {
+)
+foreach ($scriptName in $staleLaunchers) {
+    $launcherPath = Join-Path $destination $scriptName
+    if (Test-Path -LiteralPath $launcherPath) {
+        Remove-Item -LiteralPath $launcherPath -Force
+        Write-Host "Removed stale launcher: $scriptName"
+    }
+}
+
+foreach ($scriptName in @("ResolveTimer.py")) {
     $sourceScript = Join-Path $source $scriptName
     $launcherPath = Join-Path $destination $scriptName
     $sourceLiteral = ConvertTo-Json $sourceScript -Compress
@@ -80,6 +88,3 @@ Write-Host "  $destination"
 Write-Host "  Source checkout: $projectRoot"
 Write-Host ""
 Write-Host "Restart Resolve, then find Resolve Timer under Workspace > Scripts."
-Write-Host "Run ResolveProbe for source-marker diagnostics."
-Write-Host "Run ResolveFusionProbe with one Media Pool clip selected and the"
-Write-Host "timeline playhead over the matching video item."
