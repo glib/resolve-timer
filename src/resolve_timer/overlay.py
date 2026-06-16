@@ -233,6 +233,21 @@ class FusionOverlayUpdater:
         timeline_item: object,
         payload: OverlayPayload,
     ) -> "FusionOverlayUpdateResult":
+        source_start_frame = int(
+            _call_required(timeline_item, "GetSourceStartFrame")
+        )
+        source_end_frame = int(_call_required(timeline_item, "GetSourceEndFrame"))
+        if payload.start_frame < source_start_frame:
+            raise RuntimeError(
+                f"Start marker {payload.start_frame} is before timeline source "
+                f"start {source_start_frame}"
+            )
+        if payload.finish_frame > source_end_frame:
+            raise RuntimeError(
+                f"Finish marker {payload.finish_frame} is after timeline source "
+                f"end {source_end_frame}"
+            )
+
         comp_name = self.comp_name(payload.course_id)
         existing_names = _fusion_comp_names(timeline_item)
         created = comp_name not in existing_names
@@ -250,20 +265,6 @@ class FusionOverlayUpdater:
         else:
             comp = _call_required(timeline_item, "GetFusionCompByName", comp_name)
 
-        source_start_frame = int(
-            _call_required(timeline_item, "GetSourceStartFrame")
-        )
-        source_end_frame = int(_call_required(timeline_item, "GetSourceEndFrame"))
-        if payload.start_frame < source_start_frame:
-            raise RuntimeError(
-                f"Start marker {payload.start_frame} is before timeline source "
-                f"start {source_start_frame}"
-            )
-        if payload.finish_frame > source_end_frame:
-            raise RuntimeError(
-                f"Finish marker {payload.finish_frame} is after timeline source "
-                f"end {source_end_frame}"
-            )
         fusion_start_frame, fusion_finish_frame = fusion_marker_range(
             payload,
             source_start_frame,

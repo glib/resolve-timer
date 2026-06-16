@@ -62,11 +62,27 @@ class FakeSourceClip:
 
 
 class FakeTimeline:
-    def __init__(self, item):
+    def __init__(self, item=None, tracks=None, track_count=None):
         self.item = item
+        self.tracks = tracks or {}
+        self.track_count = track_count
+        self.items_in_track_calls = []
 
     def GetCurrentVideoItem(self):
         return self.item
+
+    def GetTrackCount(self, track_type):
+        if track_type != "video":
+            raise AssertionError(f"unexpected track type: {track_type}")
+        if self.track_count is not None:
+            return self.track_count
+        return max(self.tracks, default=0)
+
+    def GetItemsInTrack(self, track_type, track_index):
+        if track_type != "video":
+            raise AssertionError(f"unexpected track type: {track_type}")
+        self.items_in_track_calls.append((track_type, track_index))
+        return self.tracks.get(track_index)
 
 
 class FakeTimelineItem:
@@ -175,6 +191,68 @@ class ResolveAdapterTests(unittest.TestCase):
             ResolveAdapter.source_fps_from_properties({"FPS": "not-a-rate"})
         with self.assertRaises(ResolveAdapterError):
             ResolveAdapter.source_fps_from_properties({"FPS": "30000/0"})
+
+    def test_current_timeline_item_source_can_build_media_pool_run(self):
+        source_clip = FakeSourceClip("timeline-clip", "Timeline.MP4")
+        timeline_item = FakeTimelineItem(source_clip)
+        project = FakeProject([], FakeTimeline(timeline_item))
+        adapter = ResolveAdapter(FakeResolve(FakeProjectManager(project)))
+
+        current_item = adapter.current_timeline_video_item()
+        selected = adapter.timeline_item_media_pool_run(current_item)
+
+        self.assertIs(current_item, timeline_item)
+        self.assertIs(selected.source_clip, source_clip)
+        self.assertEqual(selected.filename, "Timeline.MP4")
+        self.assertEqual(selected.source_fps, 100.0)
+        self.assertEqual(selected.clip_id, "timeline-clip")
+        self.assertEqual(
+            [(marker.name, marker.frame) for marker in selected.source_markers],
+            [("Start", 0), ("S1", 100), ("Finish", 300)],
+        )
+
+    def test_timeline_item_media_pool_run_requires_media_pool_item(self):
+        project = FakeProject([], FakeTimeline(FakeTimelineItem(None)))
+        adapter = ResolveAdapter(FakeResolve(FakeProjectManager(project)))
+
+        with self.assertRaises(ResolveAdapterError) as raised:
+            adapter.timeline_item_media_pool_run(adapter.current_timeline_video_item())
+
+        self.assertIn("GetMediaPoolItem returned nothing", str(raised.exception))
+
+    def test_timeline_video_items_enumerates_all_video_tracks(self):
+        first = FakeTimelineItem(FakeSourceClip("clip-1"))
+        second = FakeTimelineItem(FakeSourceClip("clip-2"))
+        third = FakeTimelineItem(FakeSourceClip("clip-3"))
+        timeline = FakeTimeline(
+            tracks={
+                1: {1: first, 2: second},
+                2: {},
+                4: {1: third},
+            },
+            track_count=4,
+        )
+        project = FakeProject([], timeline)
+        adapter = ResolveAdapter(FakeResolve(FakeProjectManager(project)))
+
+        items = adapter.timeline_video_items()
+
+        self.assertEqual(items, (first, second, third))
+        self.assertEqual(
+            timeline.items_in_track_calls,
+            [("video", 1), ("video", 2), ("video", 3), ("video", 4)],
+        )
+
+    def test_timeline_video_items_returns_empty_without_current_timeline(self):
+        adapter = ResolveAdapter(FakeResolve(FakeProjectManager(FakeProject([]))))
+
+        self.assertEqual(adapter.timeline_video_items(), ())
+
+    def test_timeline_video_items_returns_empty_for_zero_video_tracks(self):
+        project = FakeProject([], FakeTimeline(track_count=0))
+        adapter = ResolveAdapter(FakeResolve(FakeProjectManager(project)))
+
+        self.assertEqual(adapter.timeline_video_items(), ())
 
     def test_matching_current_timeline_video_item_accepts_same_clip_id(self):
         source_clip = FakeSourceClip()

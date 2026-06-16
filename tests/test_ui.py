@@ -30,24 +30,92 @@ class FakeAdapter:
 
 
 class FakeControllerAdapter:
-    def __init__(self, markers=None):
+    def __init__(
+        self,
+        markers=None,
+        *,
+        filename="GX010123.MP4",
+        clip_id="clip-1",
+        timeline_runs=None,
+    ):
         self.markers = markers or (
             RawMarker("Start", 0),
             RawMarker("S1", 100),
             RawMarker("Finish", 300),
         )
+        self.filename = filename
+        self.clip_id = clip_id
+
+        timeline_runs = list(timeline_runs or [])
+        if not timeline_runs:
+            timeline_runs = [
+                {
+                    "filename": self.filename,
+                    "source_fps": 100.0,
+                    "markers": self.markers,
+                    "clip_id": self.clip_id,
+                }
+            ]
+        self.timeline_items = [
+            FakeTimelineItem(f"timeline-{index}") for index in range(len(timeline_runs))
+        ]
+        self.timeline_runs = {
+            item: self._run(
+                filename=run.get("filename", f"Timeline{index}.MP4"),
+                source_fps=run.get("source_fps", 100.0),
+                markers=run.get(
+                    "markers",
+                    (
+                        RawMarker("Start", 0),
+                        RawMarker("S1", 100),
+                        RawMarker("Finish", 300),
+                    ),
+                ),
+                clip_id=run.get("clip_id", f"timeline-clip-{index}"),
+            )
+            for index, (item, run) in enumerate(zip(self.timeline_items, timeline_runs))
+        }
+        self.current_item = self.timeline_items[0]
 
     def selected_media_pool_run(self):
-        return SimpleNamespace(
-            filename="GX010123.MP4",
+        return self._run(
+            filename=self.filename,
             source_fps=100.0,
-            source_markers=self.markers,
-            marker_source="source_clip",
-            clip_id="clip-1",
+            markers=self.markers,
+            clip_id=self.clip_id,
         )
 
     def matching_current_timeline_video_item(self, selected):
         return SimpleNamespace(selected=selected)
+
+    def current_timeline_video_item(self):
+        return self.current_item
+
+    def timeline_item_media_pool_run(self, timeline_item):
+        return self.timeline_runs[timeline_item]
+
+    def timeline_video_items(self):
+        return tuple(self.timeline_items)
+
+    @staticmethod
+    def _run(*, filename, source_fps, markers, clip_id):
+        return SimpleNamespace(
+            filename=filename,
+            source_fps=source_fps,
+            source_markers=markers,
+            marker_source="source_clip",
+            clip_id=clip_id,
+        )
+
+
+class FakeTimelineItem:
+    def __init__(self, name):
+        self.name = name
+
+
+class TimelineOnlyAdapter(FakeControllerAdapter):
+    def selected_media_pool_run(self):
+        raise TypeError("no Media Pool selection")
 
 
 class BrokenControllerAdapter:
@@ -363,29 +431,166 @@ class UiTests(unittest.TestCase):
         self.assertFalse(rows[0].ignored)
         self.assertTrue(rows[0].has_clip_id)
 
-    def test_controller_updates_static_overlay_for_matching_timeline_item(self):
+    def test_controller_updates_current_overlay_from_timeline_item(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "timer_db.yaml"
+            TimerDatabase([Course("course", "Course", 2)], []).save(db_path)
+            timeline_markers = (
+                RawMarker("Start", 0),
+                RawMarker("S1", 50),
+                RawMarker("Finish", 250),
+            )
+            adapter = FakeControllerAdapter(
+                filename="Selected.MP4",
+                clip_id="selected-clip",
+                timeline_runs=[
+                    {
+                        "filename": "Timeline.MP4",
+                        "source_fps": 50.0,
+                        "markers": timeline_markers,
+                        "clip_id": "timeline-clip",
+                    }
+                ],
+            )
+            updater = FakeOverlayUpdater()
+            controller = ResolveTimerController(
+                db_path,
+                adapter,
+                overlay_updater=updater,
+            )
+            controller.initialize()
+            controller.comparison_mode = "optimal"
+            original = db_path.read_text(encoding="utf-8")
+
+            state = controller.update_overlay()
+            current = db_path.read_text(encoding="utf-8")
+
+        self.assertEqual(
+            state.status,
+            "Created live overlay for Timeline.MP4: Resolve Timer - course",
+        )
+        self.assertIsNone(state.error)
+        self.assertEqual(current, original)
+        self.assertEqual(len(updater.calls), 1)
+        timeline_item, payload = updater.calls[0]
+        self.assertIs(timeline_item, adapter.current_item)
+        self.assertEqual(payload.marker_frames, {"Start": 0, "S1": 50, "Finish": 250})
+        self.assertEqual(payload.source_fps, 50.0)
+        self.assertEqual(payload.comparison_mode, "optimal")
+
+    def test_controller_updates_all_timeline_overlays_in_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "timer_db.yaml"
+            TimerDatabase([Course("course", "Course", 2)], []).save(db_path)
+            adapter = FakeControllerAdapter(
+                timeline_runs=[
+                    {
+                        "filename": "First.MP4",
+                        "markers": (
+                            RawMarker("Start", 0),
+                            RawMarker("S1", 100),
+                            RawMarker("Finish", 300),
+                        ),
+                        "clip_id": "first",
+                    },
+                    {
+                        "filename": "Second.MP4",
+                        "source_fps": 50.0,
+                        "markers": (
+                            RawMarker("Start", 10),
+                            RawMarker("S1", 60),
+                            RawMarker("Finish", 160),
+                        ),
+                        "clip_id": "second",
+                    },
+                ]
+            )
+            updater = FakeOverlayUpdater()
+            controller = ResolveTimerController(
+                db_path,
+                adapter,
+                overlay_updater=updater,
+            )
+            controller.initialize()
+
+            state = controller.update_all_overlays()
+
+        self.assertEqual(state.status, "Updated live overlays for 2 timeline clip(s)")
+        self.assertIsNone(state.error)
+        self.assertEqual([call[0] for call in updater.calls], adapter.timeline_items)
+        self.assertEqual(updater.calls[0][1].marker_frames["Finish"], 300)
+        self.assertEqual(updater.calls[1][1].marker_frames["Finish"], 160)
+        self.assertEqual(updater.calls[1][1].source_fps, 50.0)
+
+    def test_controller_update_all_reports_skipped_timeline_clips(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "timer_db.yaml"
+            TimerDatabase([Course("course", "Course", 2)], []).save(db_path)
+            adapter = FakeControllerAdapter(
+                timeline_runs=[
+                    {
+                        "filename": "Good.MP4",
+                        "markers": (
+                            RawMarker("Start", 0),
+                            RawMarker("S1", 100),
+                            RawMarker("Finish", 300),
+                        ),
+                    },
+                    {
+                        "filename": "Bad.MP4",
+                        "markers": (RawMarker("Start", 0), RawMarker("Finish", 300)),
+                    },
+                ]
+            )
+            updater = FakeOverlayUpdater()
+            controller = ResolveTimerController(
+                db_path,
+                adapter,
+                overlay_updater=updater,
+            )
+            controller.initialize()
+
+            state = controller.update_all_overlays()
+
+        self.assertEqual(state.status, "Updated live overlays for 1 timeline clip(s); skipped 1")
+        self.assertIn("Bad.MP4", state.error)
+        self.assertIn("missing marker S1", state.error)
+        self.assertEqual(len(updater.calls), 1)
+
+    def test_current_overlay_does_not_require_media_pool_selection(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "timer_db.yaml"
             TimerDatabase([Course("course", "Course", 2)], []).save(db_path)
             updater = FakeOverlayUpdater()
             controller = ResolveTimerController(
                 db_path,
-                FakeControllerAdapter(),
+                TimelineOnlyAdapter(),
                 overlay_updater=updater,
             )
-            controller.initialize()
-            controller.set_comparison_mode("optimal")
 
+            initial = controller.initialize()
             state = controller.update_overlay()
 
+        self.assertEqual(initial.status, "Refresh failed")
+        self.assertTrue(initial.can_update_overlay)
         self.assertEqual(
             state.status,
-            "Created live overlay Resolve Timer - course",
+            "Created live overlay for GX010123.MP4: Resolve Timer - course",
         )
         self.assertIsNone(state.error)
         self.assertEqual(len(updater.calls), 1)
-        _timeline_item, payload = updater.calls[0]
-        self.assertEqual(payload.comparison_mode, "optimal")
+
+    def test_overlay_all_handler_calls_controller(self):
+        window = ResolveTimerWindow.__new__(ResolveTimerWindow)
+        state = SimpleNamespace(status="updated")
+        window.controller = Mock()
+        window.controller.update_all_overlays.return_value = state
+        window.render = Mock()
+
+        window._on_overlay_all({})
+
+        window.controller.update_all_overlays.assert_called_once_with()
+        window.render.assert_called_once_with(state)
 
 
 if __name__ == "__main__":

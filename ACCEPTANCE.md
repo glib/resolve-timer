@@ -41,7 +41,8 @@ ongoing manual compatibility check.
 - UI opens, closes, and reopens without a stale dispatcher or duplicate window.
 - Course can be selected.
 - Current clip markers can be refreshed and previewed.
-- Selection changes while the window is open are handled by Refresh.
+- Selection changes while the window is open are handled by Refresh Media Pool
+  Preview.
 - Validation failures are displayed without terminating the script.
 - Selected Media Pool clip marker origin is identified in the UI.
 - Timing table matches the tested core service output.
@@ -60,12 +61,12 @@ ongoing manual compatibility check.
 
 Validated in Resolve 21:
 
-- Matching selected Media Pool and timeline clip IDs.
+- Reading source markers from the current timeline item's Media Pool source
+  clip.
 - Static Text+ overlay creation.
 - Second-run comp reuse with `comp_created: false`.
 - Fusion comp count unchanged on the second run.
-- Main-window and probe updater share the same clip-identity guard and Fusion
-  writer.
+- Main-window and probe updater share the same Fusion writer.
 
 Expression-driven timer validated:
 
@@ -91,6 +92,11 @@ validated Resolve 21 clip.
 - Live overlay starts at `Start`, reveals sector rows at marker crossings, and
   freezes after `Finish`.
 - Best-lap and optimal comparison modes display correct deltas.
+- `Update Clip Under Playhead` uses the clip under the playhead without
+  requiring a Media Pool selection.
+- `Update All Timeline Clips` scans video tracks, updates valid timeline clips,
+  skips invalid clips, and reports counts without writing to the timing
+  database.
 
 ## Manual Resolve Matrix
 

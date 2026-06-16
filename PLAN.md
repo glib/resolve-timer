@@ -191,8 +191,12 @@ Possible identifiers:
 
 Default behavior:
 
-- If an overlay exists for the selected clip/course, update it.
-- Offer replace/create-new only as explicit options.
+- `Update Clip Under Playhead` updates the clip under the playhead for the
+  selected course.
+- `Update All Timeline Clips` scans all current timeline video tracks, updates
+  clips with valid source markers for the selected course, and reports skipped
+  clips.
+- Offer replace/create-new only as explicit options if that becomes necessary.
 
 ## Interactive UI Requirements
 
@@ -210,8 +214,9 @@ Suggested sections:
   - committed run found
   - marker changes detected
 - Actions:
-  - Refresh From Markers
-  - Update Overlay
+  - Refresh Preview
+  - Update Clip Under Playhead
+  - Update All Timeline Clips
   - Commit New Run
   - Update Existing Run
   - Manage Runs
@@ -337,7 +342,8 @@ Action enablement:
 - `Update Existing Run`: enabled only when a matching run has marker changes.
 - `Ignore/Unignore`: enabled only for a matching committed run.
 - `Delete`: enabled only for a matching committed run.
-- `Update Overlay`: visible but disabled until Overlay V1 is implemented.
+- Timeline overlay actions are visually separate from Media Pool preview and
+  database actions.
 
 Exit gate:
 
@@ -433,10 +439,9 @@ No background thread or polling loop is required in V1.
 
 ### 7. Overlay Boundary
 
-Only after the minimal workflow is accepted, add an `Update Overlay` action
-that calls a dedicated `FusionOverlayUpdater`. The UI must not contain Fusion
-node-building logic. First validate static Text+ creation and deterministic
-lookup/update; then add expression-driven timing.
+Overlay actions call a dedicated `FusionOverlayUpdater`. The UI must not
+contain Fusion node-building logic. Static Text+ creation, deterministic
+lookup/update, and expression-driven timing have been validated separately.
 
 ### 8. Resolve 21 Compatibility
 
@@ -540,4 +545,5 @@ workflow is accepted for the validated clip. Overlay V1 now has deterministic
 Fusion comp reuse, an expression-driven live timer, marker-timed sector and lap
 rows, comparison-aware delta colors, and a blurred translucent panel. Visual
 playback with committed comparison data is accepted for the validated Resolve
-21 clip.
+21 clip. Overlay regeneration is now timeline-driven: current clip under the
+playhead or all current timeline video clips with valid selected-course markers.

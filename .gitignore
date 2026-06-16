@@ -15,5 +15,6 @@ resolve_fusion_probe.comp
 resolve_fusion_probe.json
 resolve_probe.json
 resolve_runtime.json
+resolve_ui_layout_probe.json
 resolve_ui_probe.json
 timer_db.yaml

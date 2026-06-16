@@ -1,10 +1,10 @@
 """Create or update the Resolve Timer Fusion overlay for live API validation.
 
 Before running:
-- Put the timeline playhead over the matching timeline video item.
+- Put the timeline playhead over the timeline video item to validate.
 
-The probe reads the current timeline item's source clip directly. The production
-tool still requires an explicit matching Media Pool selection.
+The probe reads the current timeline item's source clip directly, matching the
+main window's Update Clip Under Playhead action.
 
 The script writes `resolve_fusion_probe.json` in the project root.
 """

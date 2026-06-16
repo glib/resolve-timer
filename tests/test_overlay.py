@@ -289,6 +289,7 @@ class OverlayTests(unittest.TestCase):
             FusionOverlayUpdater().update_or_create(timeline_item, payload)
 
         self.assertIn("Start marker 0 is before timeline source start 50", str(raised.exception))
+        self.assertEqual(timeline_item.add_count, 0)
 
     @staticmethod
     def _payload():

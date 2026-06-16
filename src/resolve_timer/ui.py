@@ -132,14 +132,30 @@ class ResolveTimerWindow:
 
     def _build_window(self):
         ui = self.ui
+        section_label_style = (
+            "QLabel { border: 1px solid #777; padding: 6px; "
+            "border-radius: 4px; background-color: #2c2c2c; }"
+        )
+
+        def section_label(text: str):
+            return ui.Label(
+                {
+                    "Text": text,
+                    "Font": {"Bold": True},
+                    "MinimumSize": [220, 34],
+                    "StyleSheet": section_label_style,
+                    "Weight": 0,
+                }
+            )
+
         return self.dispatcher.AddWindow(
             {
                 "ID": "ResolveTimerWindow",
                 "WindowTitle": "Resolve Timer",
-                "Geometry": [180, 100, 800, 640],
+                "Geometry": [180, 100, 860, 680],
             },
             ui.VGroup(
-                {"Spacing": 6, "Weight": 1},
+                {"Spacing": 8, "Weight": 1},
                 [
                     ui.HGroup(
                         {"Weight": 0, "Spacing": 6},
@@ -174,40 +190,52 @@ class ResolveTimerWindow:
                                     "Weight": 0,
                                 }
                             ),
-                            ui.Button(
-                                {
-                                    "ID": "RefreshButton",
-                                    "Text": "Refresh",
-                                    "FixedSize": [80, 28],
-                                    "Weight": 0,
-                                }
-                            ),
                             ui.HGap(0, 1),
                         ],
                     ),
-                    ui.Group(
-                        {"Title": "Selected Clip", "Weight": 0},
+                    ui.VGroup(
+                        {"Weight": 0, "Spacing": 4},
                         [
-                            ui.VGroup(
-                                {"Spacing": 4},
+                            section_label("Media Pool Preview"),
+                            ui.Label(
+                                {
+                                    "Text": (
+                                        "Selected Media Pool clip controls preview "
+                                        "and database actions."
+                                    ),
+                                    "WordWrap": True,
+                                    "Weight": 0,
+                                }
+                            ),
+                            ui.Label(
+                                {
+                                    "ID": "ClipLabel",
+                                    "Text": "No valid selection",
+                                    "Font": {"Bold": True},
+                                    "Weight": 0,
+                                }
+                            ),
+                            ui.Label({"ID": "ClipDetailLabel", "Text": "", "Weight": 0}),
+                            ui.Label({"ID": "MarkerLabel", "Text": "", "Weight": 0}),
+                            ui.HGroup(
+                                {"Weight": 0, "Spacing": 6},
                                 [
-                                    ui.Label({"ID": "ClipLabel", "Text": "No valid selection"}),
-                                    ui.Label({"ID": "ClipDetailLabel", "Text": ""}),
-                                    ui.Label({"ID": "MarkerLabel", "Text": ""}),
+                                    ui.Button(
+                                        {
+                                            "ID": "RefreshButton",
+                                            "Text": "Refresh Preview",
+                                            "Weight": 0,
+                                        }
+                                    ),
+                                    ui.HGap(0, 1),
                                 ],
-                            )
+                            ),
                         ],
                     ),
                     ui.VGroup(
                         {"Weight": 1, "Spacing": 3},
                         [
-                            ui.Label(
-                                {
-                                    "Text": "Timing",
-                                    "Font": {"Bold": True},
-                                    "Weight": 0,
-                                }
-                            ),
+                            section_label("Preview Timing"),
                             ui.Tree(
                                 {
                                     "ID": "TimingTree",
@@ -226,16 +254,12 @@ class ResolveTimerWindow:
                             ),
                         ],
                     ),
-                    ui.Group(
-                        {"Title": "History", "Weight": 0},
+                    ui.VGroup(
+                        {"Weight": 0, "Spacing": 4},
                         [
-                            ui.VGroup(
-                                {"Spacing": 4},
-                                [
-                                    ui.Label({"ID": "HistoryLabel", "Text": "-"}),
-                                    ui.Label({"ID": "StatsLabel", "Text": ""}),
-                                ],
-                            )
+                            section_label("Media Pool History"),
+                            ui.Label({"ID": "HistoryLabel", "Text": "-"}),
+                            ui.Label({"ID": "StatsLabel", "Text": ""}),
                         ],
                     ),
                     ui.HGroup(
@@ -245,8 +269,7 @@ class ResolveTimerWindow:
                             ui.Button({"ID": "UpdateButton", "Text": "Update Existing"}),
                             ui.Button({"ID": "IgnoreButton", "Text": "Ignore Run"}),
                             ui.Button({"ID": "DeleteButton", "Text": "Delete Run"}),
-                            ui.Button({"ID": "ManageButton", "Text": "Manage Runs"}),
-                            ui.Button({"ID": "OverlayButton", "Text": "Update Overlay"}),
+                            ui.Button({"ID": "ManageButton", "Text": "Manage"}),
                             ui.Button(
                                 {
                                     "ID": "CancelUpdateButton",
@@ -274,6 +297,40 @@ class ResolveTimerWindow:
                                     "Text": "Confirm Delete",
                                     "Visible": False,
                                 }
+                            ),
+                        ],
+                    ),
+                    ui.VGroup(
+                        {"Weight": 0, "Spacing": 4},
+                        [
+                            section_label("Timeline Overlay"),
+                            ui.Label(
+                                {
+                                    "Text": (
+                                        "Reads markers from timeline clip source media. "
+                                        "The preview table above is not used."
+                                    ),
+                                    "WordWrap": True,
+                                    "Weight": 0,
+                                }
+                            ),
+                            ui.HGroup(
+                                {"Weight": 0, "Spacing": 6},
+                                [
+                                    ui.Button(
+                                        {
+                                            "ID": "OverlayButton",
+                                            "Text": "Update Clip Under Playhead",
+                                        }
+                                    ),
+                                    ui.Button(
+                                        {
+                                            "ID": "OverlayAllButton",
+                                            "Text": "Update All Timeline Clips",
+                                        }
+                                    ),
+                                    ui.HGap(0, 1),
+                                ],
                             ),
                         ],
                     ),
@@ -331,6 +388,7 @@ class ResolveTimerWindow:
         self.window.On.ConfirmDeleteButton.Clicked = self._on_confirm_delete
         self.window.On.ManageButton.Clicked = self._on_manage
         self.window.On.OverlayButton.Clicked = self._on_overlay
+        self.window.On.OverlayAllButton.Clicked = self._on_overlay_all
         self.window.On.CourseCombo.CurrentIndexChanged = self._on_course_changed
         self.window.On.ModeCombo.CurrentIndexChanged = self._on_mode_changed
 
@@ -375,6 +433,7 @@ class ResolveTimerWindow:
             self.items["DeleteButton"].Enabled = state.can_delete
             self.items["ManageButton"].Enabled = bool(state.selected_course_id)
             self.items["OverlayButton"].Enabled = state.can_update_overlay
+            self.items["OverlayAllButton"].Enabled = state.can_update_overlay
             if not state.can_update:
                 self._hide_update_confirmation()
             if not state.can_delete:
@@ -493,6 +552,9 @@ class ResolveTimerWindow:
 
     def _on_overlay(self, _event) -> None:
         self.render(self.controller.update_overlay())
+
+    def _on_overlay_all(self, _event) -> None:
+        self.render(self.controller.update_all_overlays())
 
     def _on_cancel_update(self, _event) -> None:
         self._hide_update_confirmation()

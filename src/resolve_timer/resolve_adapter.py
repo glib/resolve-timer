@@ -65,6 +65,53 @@ class ResolveAdapter:
             clip_id=clip_id,
         )
 
+    def current_timeline_video_item(self) -> object:
+        timeline = self._current_timeline()
+        return _call_required(timeline, "GetCurrentVideoItem")
+
+    def timeline_item_media_pool_run(
+        self,
+        timeline_item: object,
+    ) -> SelectedMediaPoolRun:
+        source_clip = _call_required(timeline_item, "GetMediaPoolItem")
+        return self.media_pool_run(source_clip)
+
+    def timeline_video_items(self) -> tuple[object, ...]:
+        project = self._current_project()
+        timeline = _call_existing(project, "GetCurrentTimeline")
+        if timeline is None:
+            return ()
+        track_count = _call_required(timeline, "GetTrackCount", "video")
+        try:
+            video_track_count = int(track_count)
+        except (TypeError, ValueError) as exc:
+            raise ResolveAdapterError(
+                f"Resolve GetTrackCount returned invalid video track count: {track_count!r}"
+            ) from exc
+        if video_track_count < 0:
+            raise ResolveAdapterError(
+                f"Resolve GetTrackCount returned invalid video track count: {track_count!r}"
+            )
+
+        timeline_items: list[object] = []
+        for track_index in range(1, video_track_count + 1):
+            track_items = _call_existing(
+                timeline,
+                "GetItemsInTrack",
+                "video",
+                track_index,
+            )
+            if not track_items:
+                continue
+            if not isinstance(track_items, dict):
+                raise ResolveAdapterError(
+                    "Resolve GetItemsInTrack did not return a dictionary"
+                )
+            timeline_items.extend(
+                item for item in track_items.values() if item is not None
+            )
+        return tuple(timeline_items)
+
     def selected_run_input(self, course_id: str, run_date: str | None = None):
         from .service import SelectedRunInput
 
@@ -82,10 +129,7 @@ class ResolveAdapter:
         self,
         selected: SelectedMediaPoolRun,
     ) -> object:
-        project_manager = _call_required(self.resolve, "GetProjectManager")
-        project = _call_required(project_manager, "GetCurrentProject")
-        timeline = _call_required(project, "GetCurrentTimeline")
-        timeline_item = _call_required(timeline, "GetCurrentVideoItem")
+        timeline_item = self.current_timeline_video_item()
         timeline_media = _call_required(timeline_item, "GetMediaPoolItem")
         timeline_clip_id = _optional_text(_call_optional(timeline_media, "GetUniqueId"))
         if selected.clip_id and timeline_clip_id:
@@ -96,8 +140,15 @@ class ResolveAdapter:
         if not matches:
             raise ResolveAdapterError(
                 "selected Media Pool clip does not match the current timeline video item"
-            )
+        )
         return timeline_item
+
+    def _current_project(self) -> object:
+        project_manager = _call_required(self.resolve, "GetProjectManager")
+        return _call_required(project_manager, "GetCurrentProject")
+
+    def _current_timeline(self) -> object:
+        return _call_required(self._current_project(), "GetCurrentTimeline")
 
     @staticmethod
     def markers_from_resolve_map(marker_map: dict[Any, Any]) -> tuple[RawMarker, ...]:
@@ -174,21 +225,25 @@ def _parse_fps(value: Any) -> float:
     return fps
 
 
-def _call_required(target: object, method_name: str) -> Any:
-    method = getattr(target, method_name, None)
-    if not callable(method):
-        raise ResolveAdapterError(f"Resolve object is missing {method_name}")
-    value = method()
+def _call_required(target: object, method_name: str, *args: Any) -> Any:
+    value = _call_existing(target, method_name, *args)
     if value is None:
         raise ResolveAdapterError(f"Resolve {method_name} returned nothing")
     return value
 
 
-def _call_optional(target: object, method_name: str) -> Any:
+def _call_existing(target: object, method_name: str, *args: Any) -> Any:
+    method = getattr(target, method_name, None)
+    if not callable(method):
+        raise ResolveAdapterError(f"Resolve object is missing {method_name}")
+    return method(*args)
+
+
+def _call_optional(target: object, method_name: str, *args: Any) -> Any:
     method = getattr(target, method_name, None)
     if not callable(method):
         return None
-    return method()
+    return method(*args)
 
 
 def _first_property(properties: dict[str, Any], keys: tuple[str, ...]) -> str | None:

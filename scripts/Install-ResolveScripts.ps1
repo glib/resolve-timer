@@ -46,6 +46,7 @@ foreach ($scriptName in @(
     "ResolveProbe.py",
     "ResolveRuntime.py",
     "ResolveTimer.py",
+    "ResolveUILayoutProbe.py",
     "ResolveUIProbe.py"
 )) {
     $sourceScript = Join-Path $source $scriptName

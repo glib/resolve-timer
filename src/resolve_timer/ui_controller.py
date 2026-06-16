@@ -144,13 +144,7 @@ class ResolveTimerController:
                 self.selected_course_id = courses[0][0]
 
             selected = self.adapter.selected_media_pool_run()
-            selected_input = SelectedRunInput(
-                course_id=self.selected_course_id,
-                filename=selected.filename,
-                source_fps=selected.source_fps,
-                markers=selected.source_markers,
-                clip_id=selected.clip_id,
-            )
+            selected_input = self._selected_input(selected)
             try:
                 preview = service.preview(selected_input)
             except MarkerValidationError as exc:
@@ -228,16 +222,50 @@ class ResolveTimerController:
 
     def update_overlay(self) -> ResolveTimerViewState:
         try:
-            service, selected, selected_input, _preview = self._selection_context()
-            timeline_item = self.adapter.matching_current_timeline_video_item(selected)
-            payload = service.overlay_payload(
-                selected_input,
-                comparison_mode=self.comparison_mode,
-            )
-            result = self.overlay_updater.update_or_create(timeline_item, payload)
-            state = self.refresh_selection()
+            service = self._overlay_service()
+            timeline_item = self.adapter.current_timeline_video_item()
+            selected = self.adapter.timeline_item_media_pool_run(timeline_item)
+            result = self._update_timeline_item_overlay(service, timeline_item, selected)
             action = "Created" if result.created else "Updated"
-            return _with_status(state, f"{action} live overlay {result.comp_name}")
+            return self._state_after_overlay_action(
+                f"{action} live overlay for {selected.filename}: {result.comp_name}"
+            )
+        except Exception as exc:
+            return self._mutation_error("Overlay update failed", exc)
+
+    def update_all_overlays(self) -> ResolveTimerViewState:
+        try:
+            service = self._overlay_service()
+            timeline_items = self.adapter.timeline_video_items()
+            if not timeline_items:
+                raise ValueError("current timeline has no video clips")
+
+            updated = 0
+            skipped: list[str] = []
+            for index, timeline_item in enumerate(timeline_items, start=1):
+                label = f"clip {index}"
+                try:
+                    selected = self.adapter.timeline_item_media_pool_run(timeline_item)
+                    label = selected.filename
+                    self._update_timeline_item_overlay(service, timeline_item, selected)
+                    updated += 1
+                except Exception as exc:
+                    self._log_unexpected(f"update all overlays {label}", exc)
+                    skipped.append(f"{label}: {exc}")
+
+            if updated == 0:
+                return replace(
+                    self._state_after_overlay_action("No timeline overlays updated"),
+                    error=_skip_summary(skipped),
+                )
+
+            status = f"Updated live overlays for {updated} timeline clip(s)"
+            if skipped:
+                status = f"{status}; skipped {len(skipped)}"
+            state = self._state_after_overlay_action(status)
+            if skipped:
+                return replace(state, error=_skip_summary(skipped))
+            return state
         except Exception as exc:
             return self._mutation_error("Overlay update failed", exc)
 
@@ -365,7 +393,7 @@ class ResolveTimerController:
             can_update=False,
             can_toggle_ignored=False,
             can_delete=False,
-            can_update_overlay=False,
+            can_update_overlay=bool(courses and self.selected_course_id),
             matching_run_id=None,
         )
 
@@ -379,15 +407,39 @@ class ResolveTimerController:
         if not self.selected_course_id:
             raise ValueError("select a course before modifying runs")
         selected = self.adapter.selected_media_pool_run()
-        selected_input = SelectedRunInput(
+        selected_input = self._selected_input(selected)
+        preview = service.preview(selected_input)
+        return service, selected, selected_input, preview
+
+    def _overlay_service(self) -> TimerService:
+        self.service = TimerService.load(self.database_path)
+        if not self.selected_course_id:
+            raise ValueError("select a course before updating overlays")
+        return self.service
+
+    def _update_timeline_item_overlay(self, service, timeline_item, selected):
+        payload = service.overlay_payload(
+            self._selected_input(selected),
+            comparison_mode=self.comparison_mode,
+        )
+        return self.overlay_updater.update_or_create(timeline_item, payload)
+
+    def _selected_input(self, selected) -> SelectedRunInput:
+        if not self.selected_course_id:
+            raise ValueError("select a course before modifying runs")
+        return SelectedRunInput(
             course_id=self.selected_course_id,
             filename=selected.filename,
             source_fps=selected.source_fps,
             markers=selected.source_markers,
             clip_id=selected.clip_id,
         )
-        preview = service.preview(selected_input)
-        return service, selected, selected_input, preview
+
+    def _state_after_overlay_action(self, status: str) -> ResolveTimerViewState:
+        state = self.refresh_selection()
+        if state.error is not None:
+            return replace(state, status=status, error=None)
+        return _with_status(state, status)
 
     def _mutation_error(self, status: str, exc: Exception) -> ResolveTimerViewState:
         self._log_unexpected(status.lower(), exc)
@@ -408,7 +460,10 @@ class ResolveTimerController:
             return replace(state, status="Preference save failed", error=str(exc))
 
     def _log_unexpected(self, context: str, exc: Exception) -> None:
-        if isinstance(exc, (ValueError, ResolveAdapterError, OSError)):
+        if isinstance(
+            exc,
+            (ValueError, MarkerValidationError, ResolveAdapterError, OSError),
+        ):
             return
         append_exception_log(self.log_path, context, exc)
 
@@ -448,3 +503,11 @@ def _marker_source_label(value: str) -> str:
 
 def _with_status(state: ResolveTimerViewState, status: str) -> ResolveTimerViewState:
     return replace(state, status=status)
+
+
+def _skip_summary(skipped: list[str]) -> str | None:
+    if not skipped:
+        return None
+    shown = skipped[:5]
+    suffix = "" if len(skipped) <= len(shown) else f"\n... and {len(skipped) - len(shown)} more"
+    return "Skipped timeline clips:\n" + "\n".join(shown) + suffix
