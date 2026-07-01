@@ -20,6 +20,7 @@ def run_record(
     committed=True,
     ignored=False,
     committed_at="2026-05-31T10:00:00Z",
+    date="2026-05-31",
     filename="GX010123.MP4",
     clip_id=None,
 ):
@@ -27,7 +28,7 @@ def run_record(
     return RunRecord(
         id=run_id,
         course_id="course",
-        date="2026-05-31",
+        date=date,
         filename=filename,
         source_fps=100.0,
         marker_frames=frames,
@@ -123,6 +124,16 @@ class DatabaseStatsMatchingTests(unittest.TestCase):
 
         self.assertEqual(stats.best_lap.run.id, "early")
 
+    def test_stats_can_exclude_one_run_without_mutating_ignored_state(self):
+        run_a = run_record("run_a", self.frames_a)
+        run_b = run_record("run_b", self.frames_b)
+
+        stats = compute_course_stats(self.course, [run_a, run_b], exclude_run_id="run_b")
+
+        self.assertEqual([item.run.id for item in stats.eligible_runs], ["run_a"])
+        self.assertFalse(run_b.ignored)
+        self.assertEqual(stats.best_lap.run.id, "run_a")
+
     def test_fastest_sector_can_mix_runs_for_optimal(self):
         run_a = run_record("run_a", {"Start": 0, "S1": 100, "Finish": 300})
         run_b = run_record("run_b", {"Start": 0, "S1": 80, "Finish": 320})
@@ -131,6 +142,47 @@ class DatabaseStatsMatchingTests(unittest.TestCase):
 
         self.assertEqual([sector.run.id for sector in stats.fastest_sectors], ["run_b", "run_a"])
         self.assertEqual(stats.optimal_seconds, 2.8)
+
+    def test_course_summary_payload_uses_eligible_runs_and_leaderboard_order(self):
+        from resolve_timer.summary_card import build_course_summary_payload
+
+        runs = [
+            run_record(
+                "run_slow",
+                {"Start": 0, "S1": 100, "Finish": 330},
+                date="2026-06-03",
+            ),
+            run_record(
+                "run_fast_late",
+                {"Start": 0, "S1": 90, "Finish": 280},
+                date="2026-06-02",
+            ),
+            run_record(
+                "run_fast_early",
+                {"Start": 0, "S1": 80, "Finish": 280},
+                date="2026-06-01",
+            ),
+            run_record("ignored", self.frames_b, ignored=True),
+            run_record("uncommitted", self.frames_b, committed=False),
+            run_record("invalid", {"Start": 0, "Finish": 100}),
+        ]
+
+        stats = compute_course_stats(self.course, runs)
+        payload = build_course_summary_payload(self.course, stats)
+
+        self.assertEqual(payload.eligible_run_count, 3)
+        self.assertEqual(payload.date_range, "2026-06-01 to 2026-06-03")
+        self.assertEqual(payload.best_lap, "0:02.800")
+        self.assertEqual(payload.best_lap_run_id, "run_fast_early")
+        self.assertEqual(payload.optimal_lap, "0:02.700")
+        self.assertEqual(
+            [(sector.sector, sector.run_id, sector.duration) for sector in payload.fastest_sectors],
+            [(1, "run_fast_early", "0:00.800"), (2, "run_fast_late", "0:01.900")],
+        )
+        self.assertEqual(
+            [run.run_id for run in payload.top_runs],
+            ["run_fast_early", "run_fast_late", "run_slow"],
+        )
 
     def test_matching_prefers_clip_id_then_fingerprint(self):
         run_a = run_record("run_a", self.frames_a, clip_id="clip-a")

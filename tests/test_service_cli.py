@@ -13,7 +13,7 @@ from resolve_timer.cli import main
 from resolve_timer.database import TimerDatabase
 from resolve_timer.matching import clip_fingerprint
 from resolve_timer.models import Course, RawMarker
-from resolve_timer.service import SelectedRunInput, TimerService
+from resolve_timer.service import SelectedRunInput, TimelineRunCandidate, TimerService
 
 
 class ServiceCliTests(unittest.TestCase):
@@ -147,6 +147,215 @@ class ServiceCliTests(unittest.TestCase):
             service.update_existing_run(selected_for_other_course, "run_custom")
 
         self.assertIn("belongs to course course, not other", str(raised.exception))
+
+    def test_preview_summary_delta_shows_only_equal_or_faster_current_run(self):
+        service = TimerService(TimerDatabase([self.course], []))
+        baseline = SelectedRunInput(
+            course_id="course",
+            filename="Baseline.MP4",
+            source_fps=100.0,
+            markers=(
+                RawMarker("Start", 0),
+                RawMarker("S1", 100),
+                RawMarker("Finish", 320),
+            ),
+            clip_id="baseline",
+            run_date="2026-05-31",
+        )
+        service.commit_new_run(
+            baseline,
+            run_id="baseline",
+            committed_at="2026-05-31T10:00:00Z",
+        )
+        service.commit_new_run(
+            self.selected,
+            run_id="current",
+            committed_at="2026-05-31T11:00:00Z",
+        )
+
+        faster = service.preview(self.selected)
+        self.assertAlmostEqual(faster.best_lap_delta, -0.2)
+        self.assertAlmostEqual(faster.optimal_lap_delta, -0.2)
+
+        equal_service = TimerService(TimerDatabase([self.course], []))
+        equal_service.commit_new_run(
+            self.selected,
+            run_id="equal_baseline",
+            committed_at="2026-05-31T10:00:00Z",
+        )
+        equal = equal_service.preview(
+            SelectedRunInput(
+                course_id="course",
+                filename="Equal.MP4",
+                source_fps=100.0,
+                markers=self.markers,
+                clip_id="equal",
+                run_date="2026-05-31",
+            )
+        )
+        self.assertEqual(equal.best_lap_delta, 0.0)
+
+        slower = service.preview(baseline)
+        self.assertIsNone(slower.best_lap_delta)
+        self.assertIsNone(slower.optimal_lap_delta)
+
+    def test_timeline_batch_compares_against_prior_batch_runs(self):
+        service = TimerService(TimerDatabase([self.course], []))
+        service.commit_new_run(
+            SelectedRunInput(
+                course_id="course",
+                filename="Baseline.MP4",
+                source_fps=100.0,
+                markers=(
+                    RawMarker("Start", 0),
+                    RawMarker("S1", 100),
+                    RawMarker("Finish", 320),
+                ),
+                clip_id="baseline",
+                run_date="2026-05-31",
+            ),
+            run_id="baseline",
+            committed_at="2026-05-31T10:00:00Z",
+        )
+
+        result = service.commit_or_update_timeline_runs(
+            [
+                TimelineRunCandidate(
+                    "First.MP4",
+                    SelectedRunInput(
+                        course_id="course",
+                        filename="First.MP4",
+                        source_fps=100.0,
+                        markers=(
+                            RawMarker("Start", 0),
+                            RawMarker("S1", 100),
+                            RawMarker("Finish", 300),
+                        ),
+                        clip_id="first",
+                        run_date="2026-05-31",
+                    ),
+                ),
+                TimelineRunCandidate(
+                    "Second.MP4",
+                    SelectedRunInput(
+                        course_id="course",
+                        filename="Second.MP4",
+                        source_fps=100.0,
+                        markers=(
+                            RawMarker("Start", 0),
+                            RawMarker("S1", 95),
+                            RawMarker("Finish", 290),
+                        ),
+                        clip_id="second",
+                        run_date="2026-05-31",
+                    ),
+                ),
+                TimelineRunCandidate(
+                    "Third.MP4",
+                    SelectedRunInput(
+                        course_id="course",
+                        filename="Third.MP4",
+                        source_fps=100.0,
+                        markers=(
+                            RawMarker("Start", 0),
+                            RawMarker("S1", 90),
+                            RawMarker("Finish", 280),
+                        ),
+                        clip_id="third",
+                        run_date="2026-05-31",
+                    ),
+                ),
+            ]
+        )
+
+        self.assertEqual(result.committed, 3)
+        self.assertEqual(result.updated, 0)
+        self.assertEqual(result.unchanged, 0)
+        self.assertEqual(result.skipped, 0)
+        self.assertEqual(result.failed, 0)
+        self.assertEqual(
+            [item.preview.best_lap_references.lap_seconds for item in result.items],
+            [3.2, 3.0, 2.9],
+        )
+        self.assertEqual(
+            [round(item.preview.best_lap_delta, 3) for item in result.items],
+            [-0.2, -0.1, -0.1],
+        )
+        self.assertEqual([run.filename for run in service.database.runs], [
+            "Baseline.MP4",
+            "First.MP4",
+            "Second.MP4",
+            "Third.MP4",
+        ])
+        self.assertFalse(any(run.ignored for run in service.database.runs[1:]))
+
+    def test_timeline_batch_handles_unchanged_changed_ignored_and_invalid_runs(self):
+        service = TimerService(TimerDatabase([self.course], []))
+        unchanged = service.commit_new_run(
+            self.selected,
+            run_id="unchanged",
+            committed_at="2026-05-31T10:00:00Z",
+        )
+        ignored = service.commit_new_run(
+            SelectedRunInput(
+                course_id="course",
+                filename="Ignored.MP4",
+                source_fps=100.0,
+                markers=(
+                    RawMarker("Start", 0),
+                    RawMarker("S1", 100),
+                    RawMarker("Finish", 330),
+                ),
+                clip_id="ignored",
+                run_date="2026-05-31",
+            ),
+            run_id="ignored",
+            committed_at="2026-05-31T11:00:00Z",
+        )
+        service.set_ignored(ignored.id, True)
+
+        result = service.commit_or_update_timeline_runs(
+            [
+                TimelineRunCandidate("Unchanged.MP4", self.selected),
+                TimelineRunCandidate(
+                    "Ignored.MP4",
+                    SelectedRunInput(
+                        course_id="course",
+                        filename="Ignored.MP4",
+                        source_fps=100.0,
+                        markers=(
+                            RawMarker("Start", 0),
+                            RawMarker("S1", 90),
+                            RawMarker("Finish", 310),
+                        ),
+                        clip_id="ignored",
+                        run_date="2026-05-31",
+                    ),
+                ),
+                TimelineRunCandidate(
+                    "Bad.MP4",
+                    SelectedRunInput(
+                        course_id="course",
+                        filename="Bad.MP4",
+                        source_fps=100.0,
+                        markers=(RawMarker("Start", 0), RawMarker("Finish", 300)),
+                        clip_id="bad",
+                    ),
+                ),
+                TimelineRunCandidate("NoSource.MP4", skip_reason="no source clip"),
+            ]
+        )
+
+        self.assertEqual(result.unchanged, 1)
+        self.assertEqual(result.updated, 1)
+        self.assertEqual(result.skipped, 2)
+        self.assertEqual(result.failed, 0)
+        self.assertEqual(result.items[0].run_id, unchanged.id)
+        updated_ignored = next(run for run in service.database.runs if run.id == ignored.id)
+        self.assertTrue(updated_ignored.ignored)
+        self.assertEqual(updated_ignored.marker_frames["Finish"], 310)
+        self.assertIn("missing marker S1", result.items[2].message)
+        self.assertIn("no source clip", result.items[3].message)
 
     def test_commit_generates_incrementing_run_id(self):
         service = TimerService(TimerDatabase([self.course], []))
@@ -600,6 +809,53 @@ class ServiceCliTests(unittest.TestCase):
         self.assertEqual(payload["best_lap"]["run_id"], "run_custom")
         self.assertEqual(payload["best_lap"]["seconds"], 3.0)
         self.assertEqual([sector["sector"] for sector in payload["fastest_sectors"]], [1, 2])
+
+    def test_cli_summary_card_writes_default_png(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "timer_db.yaml"
+            service = TimerService(TimerDatabase([self.course], []))
+            service.commit_new_run(
+                self.selected,
+                run_id="run_custom",
+                committed_at="2026-05-31T10:00:00Z",
+            )
+            service.save(db_path)
+
+            stdout = StringIO()
+            with patch("sys.stdout", stdout):
+                exit_code = main(["--db", str(db_path), "summary-card", "--course", "course"])
+            files = list(tmp_path.glob("resolve_timer_summary_course_*.png"))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(files), 1)
+        self.assertIn(f"Wrote {files[0]}", stdout.getvalue())
+
+    def test_cli_summary_card_writes_custom_png(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "timer_db.yaml"
+            output_path = tmp_path / "custom.png"
+            TimerDatabase([self.course], []).save(db_path)
+
+            stdout = StringIO()
+            with patch("sys.stdout", stdout):
+                exit_code = main(
+                    [
+                        "--db",
+                        str(db_path),
+                        "summary-card",
+                        "--course",
+                        "course",
+                        "--output",
+                        str(output_path),
+                    ]
+                )
+            output_exists = output_path.exists()
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(output_exists)
+        self.assertIn(f"Wrote {output_path}", stdout.getvalue())
 
     def test_cli_update_run_from_csv(self):
         with tempfile.TemporaryDirectory() as tmp:

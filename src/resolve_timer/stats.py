@@ -36,9 +36,16 @@ class CourseStats:
     optimal_frames: int | None
 
 
-def compute_course_stats(course: Course, runs: list[RunRecord]) -> CourseStats:
+def compute_course_stats(
+    course: Course,
+    runs: list[RunRecord],
+    *,
+    exclude_run_id: str | None = None,
+) -> CourseStats:
     eligible: list[RunTiming] = []
     for run in runs:
+        if exclude_run_id is not None and run.id == exclude_run_id:
+            continue
         if run.course_id != course.id or not run.committed or run.ignored:
             continue
         try:

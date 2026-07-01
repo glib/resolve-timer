@@ -8,6 +8,8 @@ from resolve_timer.markers import parse_marker_snapshot
 from resolve_timer.models import Course, RawMarker
 from resolve_timer.overlay import (
     FusionOverlayUpdater,
+    OVERLAY_CANVAS_HEIGHT,
+    OVERLAY_CANVAS_WIDTH,
     build_fusion_overlay_rows,
     build_live_timer_expression,
     build_overlay_payload,
@@ -133,6 +135,26 @@ class OverlayTests(unittest.TestCase):
             comp.tools["ResolveTimerText"].inputs["Style"],
             "Medium",
         )
+        for name in (
+            "ResolveTimerPanelBackground",
+            "ResolveTimerPanelBorderBackground",
+        ):
+            self.assertEqual(comp.tools[name].inputs["UseFrameFormatSettings"], 0)
+            self.assertEqual(comp.tools[name].inputs["Width"], OVERLAY_CANVAS_WIDTH)
+            self.assertEqual(comp.tools[name].inputs["Height"], OVERLAY_CANVAS_HEIGHT)
+        for name in (
+            "ResolveTimerText",
+            "ResolveTimerS1Text",
+            "ResolveTimerS1Delta",
+            "ResolveTimerS2Text",
+            "ResolveTimerS2Delta",
+            "ResolveTimerLAPText",
+            "ResolveTimerLAPDelta",
+            "ResolveTimerBestText",
+            "ResolveTimerOptimalText",
+        ):
+            self.assertEqual(comp.tools[name].inputs["Width"], OVERLAY_CANVAS_WIDTH)
+            self.assertEqual(comp.tools[name].inputs["Height"], OVERLAY_CANVAS_HEIGHT)
         self.assertIs(
             comp.tools["ResolveTimerPanelBlur"].connections["Input"],
             comp.tools["MediaIn1"],
@@ -228,6 +250,24 @@ class OverlayTests(unittest.TestCase):
         self.assertEqual(result.fusion_start_frame, 0)
         self.assertEqual(result.fusion_finish_frame, 300)
 
+    def test_fusion_updater_repositions_existing_generated_tools(self):
+        payload = self._payload()
+        timeline_item = FakeTimelineItem()
+        updater = FusionOverlayUpdater()
+        result = updater.update_or_create(timeline_item, payload)
+        comp = timeline_item.comps[result.comp_name]
+        comp.tools["ResolveTimerText"].attrs["TOOLS_XPos"] = -99
+        comp.tools["ResolveTimerText"].attrs["TOOLS_YPos"] = -99
+        comp.tools["ResolveTimerS1TextMerge"].attrs["TOOLS_XPos"] = -99
+        comp.tools["ResolveTimerS1TextMerge"].attrs["TOOLS_YPos"] = -99
+
+        updater.update_or_create(timeline_item, payload)
+
+        self.assertEqual(comp.tools["ResolveTimerText"].attrs["TOOLS_XPos"], 4)
+        self.assertEqual(comp.tools["ResolveTimerText"].attrs["TOOLS_YPos"], -1)
+        self.assertEqual(comp.tools["ResolveTimerS1TextMerge"].attrs["TOOLS_XPos"], 7)
+        self.assertEqual(comp.tools["ResolveTimerS1TextMerge"].attrs["TOOLS_YPos"], 1)
+
     def test_fusion_updater_reuses_existing_comp_and_nodes(self):
         payload = self._payload()
         timeline_item = FakeTimelineItem()
@@ -315,6 +355,7 @@ class OverlayTests(unittest.TestCase):
 class FakeTool:
     def __init__(self, name):
         self.name = name
+        self.attrs = {}
         self.inputs = {}
         self.expressions = {}
         self.input_objects = {"StyledText": FakeInput(self, "StyledText")}
@@ -322,11 +363,13 @@ class FakeTool:
         self.comp = None
 
     def SetAttrs(self, attrs):
-        old_name = self.name
-        self.name = attrs["TOOLS_Name"]
-        if self.comp is not None:
-            self.comp.tools.pop(old_name, None)
-            self.comp.tools[self.name] = self
+        self.attrs.update(attrs)
+        if "TOOLS_Name" in attrs:
+            old_name = self.name
+            self.name = attrs["TOOLS_Name"]
+            if self.comp is not None:
+                self.comp.tools.pop(old_name, None)
+                self.comp.tools[self.name] = self
         return True
 
     def SetInput(self, name, value):

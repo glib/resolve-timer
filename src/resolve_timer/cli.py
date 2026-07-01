@@ -12,6 +12,7 @@ from .models import RawMarker
 from .overlay import format_final_overlay_text
 from .service import RunPreview, SelectedRunInput, TimerService
 from .stats import CourseStats, compute_course_stats
+from .summary_card import default_summary_card_path, render_course_summary_card
 from .timing import format_duration
 from .ui import format_preview_summary
 from .validation import validate_database
@@ -55,6 +56,11 @@ def main(argv: list[str] | None = None) -> int:
     stats.add_argument("--course", required=True, help="Course ID")
     stats.add_argument("--json", action="store_true", help="Print machine-readable JSON")
     stats.set_defaults(func=_cmd_stats)
+
+    summary_card = subparsers.add_parser("summary-card", help="Export a course summary PNG")
+    summary_card.add_argument("--course", required=True, help="Course ID")
+    summary_card.add_argument("--output", help="PNG output path")
+    summary_card.set_defaults(func=_cmd_summary_card)
 
     preview = subparsers.add_parser("preview", help="Preview timing from a marker CSV")
     _add_selected_args(preview)
@@ -198,6 +204,19 @@ def _cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_summary_card(args: argparse.Namespace) -> int:
+    service = TimerService.load(args.db)
+    payload = service.course_summary_payload(args.course)
+    output = (
+        Path(args.output)
+        if args.output
+        else default_summary_card_path(args.db, args.course)
+    )
+    written = render_course_summary_card(payload, output)
+    print(f"Wrote {written}")
+    return 0
+
+
 def _stats_to_dict(course_id: str, stats: CourseStats) -> dict[str, object]:
     return {
         "course_id": course_id,
@@ -262,7 +281,9 @@ def _preview_to_dict(preview: RunPreview, comparison_mode: str) -> dict[str, obj
         "matching_run_id": None if preview.matching_run is None else preview.matching_run.id,
         "has_marker_changes": preview.has_marker_changes,
         "best_lap_seconds": preview.best_lap_references.lap_seconds,
+        "best_lap_delta_seconds": preview.best_lap_delta,
         "optimal_seconds": preview.optimal_references.lap_seconds,
+        "optimal_delta_seconds": preview.optimal_lap_delta,
     }
 
 

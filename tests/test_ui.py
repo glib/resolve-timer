@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from resolve_timer.database import TimerDatabase
 from resolve_timer.models import Course, RawMarker
-from resolve_timer.service import SelectedRunInput
+from resolve_timer.service import SelectedRunInput, TimerService
 from resolve_timer.ui import ResolveTimerWindow, format_preview_summary, preview_selected_clip
 from resolve_timer.ui_controller import ResolveTimerController
 
@@ -57,7 +57,8 @@ class FakeControllerAdapter:
                 }
             ]
         self.timeline_items = [
-            FakeTimelineItem(f"timeline-{index}") for index in range(len(timeline_runs))
+            FakeTimelineItem(f"timeline-{index}", run.get("start"))
+            for index, run in enumerate(timeline_runs)
         ]
         self.timeline_runs = {
             item: self._run(
@@ -109,8 +110,12 @@ class FakeControllerAdapter:
 
 
 class FakeTimelineItem:
-    def __init__(self, name):
+    def __init__(self, name, start=None):
         self.name = name
+        self.start = start
+
+    def GetStart(self):
+        return self.start
 
 
 class TimelineOnlyAdapter(FakeControllerAdapter):
@@ -620,6 +625,108 @@ class UiTests(unittest.TestCase):
         self.assertIn("missing marker S1", state.error)
         self.assertEqual(len(updater.calls), 1)
 
+    def test_controller_commits_timeline_runs_in_timeline_start_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "timer_db.yaml"
+            service = TimerService(TimerDatabase([Course("course", "Course", 2)], []))
+            service.commit_new_run(
+                SelectedRunInput(
+                    course_id="course",
+                    filename="Baseline.MP4",
+                    source_fps=100.0,
+                    markers=(
+                        RawMarker("Start", 0),
+                        RawMarker("S1", 100),
+                        RawMarker("Finish", 320),
+                    ),
+                    clip_id="baseline",
+                ),
+                run_id="baseline",
+            )
+            service.save(db_path)
+            adapter = FakeControllerAdapter(
+                timeline_runs=[
+                    {
+                        "filename": "Third.MP4",
+                        "markers": (
+                            RawMarker("Start", 0),
+                            RawMarker("S1", 90),
+                            RawMarker("Finish", 280),
+                        ),
+                        "clip_id": "third",
+                        "start": 30,
+                    },
+                    {
+                        "filename": "First.MP4",
+                        "markers": (
+                            RawMarker("Start", 0),
+                            RawMarker("S1", 100),
+                            RawMarker("Finish", 300),
+                        ),
+                        "clip_id": "first",
+                        "start": 10,
+                    },
+                    {
+                        "filename": "Second.MP4",
+                        "markers": (
+                            RawMarker("Start", 0),
+                            RawMarker("S1", 95),
+                            RawMarker("Finish", 290),
+                        ),
+                        "clip_id": "second",
+                        "start": 20,
+                    },
+                ]
+            )
+            controller = ResolveTimerController(db_path, adapter)
+            controller.initialize()
+
+            state = controller.commit_update_timeline_runs()
+            loaded = TimerDatabase.load(db_path)
+
+        self.assertEqual(
+            state.status,
+            "Timeline runs: committed 3, updated 0, unchanged 0, skipped 0, failed 0",
+        )
+        self.assertIsNone(state.error)
+        self.assertEqual(
+            [run.filename for run in loaded.runs],
+            ["Baseline.MP4", "First.MP4", "Second.MP4", "Third.MP4"],
+        )
+        self.assertFalse(any(run.ignored for run in loaded.runs[1:]))
+
+    def test_controller_timeline_batch_reports_skipped_invalid_clip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "timer_db.yaml"
+            TimerDatabase([Course("course", "Course", 2)], []).save(db_path)
+            adapter = FakeControllerAdapter(
+                timeline_runs=[
+                    {
+                        "filename": "Good.MP4",
+                        "markers": (
+                            RawMarker("Start", 0),
+                            RawMarker("S1", 100),
+                            RawMarker("Finish", 300),
+                        ),
+                    },
+                    {
+                        "filename": "Bad.MP4",
+                        "markers": (RawMarker("Start", 0), RawMarker("Finish", 300)),
+                    },
+                ]
+            )
+            controller = ResolveTimerController(db_path, adapter)
+            controller.initialize()
+
+            state = controller.commit_update_timeline_runs()
+
+        self.assertEqual(
+            state.status,
+            "Timeline runs: committed 1, updated 0, unchanged 0, skipped 1, failed 0",
+        )
+        self.assertIn("Bad.MP4", state.error)
+        self.assertIn("missing marker S1", state.error)
+
     def test_current_overlay_does_not_require_media_pool_selection(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "timer_db.yaml"
@@ -643,6 +750,23 @@ class UiTests(unittest.TestCase):
         self.assertIsNone(state.error)
         self.assertEqual(len(updater.calls), 1)
 
+    def test_summary_export_does_not_require_media_pool_selection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "timer_db.yaml"
+            output_path = Path(tmp) / "summary.png"
+            TimerDatabase([Course("course", "Course", 2)], []).save(db_path)
+            controller = ResolveTimerController(db_path, TimelineOnlyAdapter())
+
+            initial = controller.initialize()
+            state = controller.export_course_summary_card(output_path)
+            output_exists = output_path.exists()
+
+        self.assertEqual(initial.status, "Refresh failed")
+        self.assertTrue(initial.can_export_summary)
+        self.assertEqual(state.status, f"Exported course summary PNG: {output_path}")
+        self.assertIsNone(state.error)
+        self.assertTrue(output_exists)
+
     def test_overlay_all_handler_calls_controller(self):
         window = ResolveTimerWindow.__new__(ResolveTimerWindow)
         state = SimpleNamespace(status="updated")
@@ -653,6 +777,30 @@ class UiTests(unittest.TestCase):
         window._on_overlay_all({})
 
         window.controller.update_all_overlays.assert_called_once_with()
+        window.render.assert_called_once_with(state)
+
+    def test_timeline_runs_handler_calls_controller(self):
+        window = ResolveTimerWindow.__new__(ResolveTimerWindow)
+        state = SimpleNamespace(status="timeline")
+        window.controller = Mock()
+        window.controller.commit_update_timeline_runs.return_value = state
+        window.render = Mock()
+
+        window._on_timeline_runs({})
+
+        window.controller.commit_update_timeline_runs.assert_called_once_with()
+        window.render.assert_called_once_with(state)
+
+    def test_summary_export_handler_calls_controller(self):
+        window = ResolveTimerWindow.__new__(ResolveTimerWindow)
+        state = SimpleNamespace(status="exported")
+        window.controller = Mock()
+        window.controller.export_course_summary_card.return_value = state
+        window.render = Mock()
+
+        window._on_summary_export({})
+
+        window.controller.export_course_summary_card.assert_called_once_with()
         window.render.assert_called_once_with(state)
 
 

@@ -10,6 +10,10 @@ from .models import Course, MarkerSnapshot, TimingResult
 from .timing import format_delta, format_duration
 
 
+OVERLAY_CANVAS_WIDTH = 3840
+OVERLAY_CANVAS_HEIGHT = 2160
+
+
 @dataclass(frozen=True)
 class OverlayPayload:
     course_id: str
@@ -275,66 +279,68 @@ class FusionOverlayUpdater:
 
         _call_optional(comp, "Lock")
         try:
-            text = _find_or_add_tool(comp, self.text_tool_name, "TextPlus", 0, -1)
-            merge = _find_or_add_tool(comp, self.merge_tool_name, "Merge", 1, 0)
+            text = _find_or_add_tool(comp, self.text_tool_name, "TextPlus", 4, -1)
+            merge = _find_or_add_tool(comp, self.merge_tool_name, "Merge", 7, -1)
             panel_background = _find_or_add_tool(
                 comp,
                 self.panel_background_name,
                 "Background",
-                -2,
+                1,
                 0,
             )
             panel_blur = _find_or_add_tool(
                 comp,
                 self.panel_blur_name,
                 "Blur",
-                -2,
                 1,
+                -1,
             )
             panel_blur_merge = _find_or_add_tool(
                 comp,
                 self.panel_blur_merge_name,
                 "Merge",
+                2,
                 -1,
-                1,
             )
             panel_mask = _find_or_add_tool(
                 comp,
                 self.panel_mask_name,
                 "RectangleMask",
-                -3,
+                0,
                 0,
             )
             panel_merge = _find_or_add_tool(
                 comp,
                 self.panel_merge_name,
                 "Merge",
-                -1,
+                2,
                 0,
             )
             panel_border_background = _find_or_add_tool(
                 comp,
                 self.panel_border_background_name,
                 "Background",
-                -1,
+                1,
                 1,
             )
             panel_border_mask = _find_or_add_tool(
                 comp,
                 self.panel_border_mask_name,
                 "RectangleMask",
-                -2,
-                2,
+                0,
+                1,
             )
             panel_border_merge = _find_or_add_tool(
                 comp,
                 self.panel_border_merge_name,
                 "Merge",
+                3,
                 0,
-                1,
             )
             media_in = _find_required_tool(comp, ("MediaIn1", "MediaIn"))
             media_out = _find_required_tool(comp, ("MediaOut1", "MediaOut"))
+            _set_tool_position(media_in, 0, 0)
+            _set_tool_position(media_out, 10, 0)
 
             layout_scale = 0.7
             panel_top_margin = 0.016
@@ -406,36 +412,36 @@ class FusionOverlayUpdater:
             _connect_input(merge, "Foreground", text)
 
             output = merge
-            merge_x = 2
             for index, row in enumerate(rows, start=1):
                 y = top_y - (index * row_gap)
+                graph_y = index
                 row_text = _find_or_add_tool(
                     comp,
                     f"ResolveTimer{row.key}Text",
                     "TextPlus",
-                    merge_x,
-                    -1,
+                    4,
+                    graph_y,
                 )
                 row_delta = _find_or_add_tool(
                     comp,
                     f"ResolveTimer{row.key}Delta",
                     "TextPlus",
-                    merge_x,
-                    -2,
+                    5,
+                    graph_y,
                 )
                 row_merge = _find_or_add_tool(
                     comp,
                     f"ResolveTimer{row.key}TextMerge",
                     "Merge",
-                    merge_x,
-                    0,
+                    7,
+                    graph_y,
                 )
                 delta_merge = _find_or_add_tool(
                     comp,
                     f"ResolveTimer{row.key}DeltaMerge",
                     "Merge",
-                    merge_x + 1,
-                    0,
+                    8,
+                    graph_y,
                 )
                 _configure_text(
                     row_text,
@@ -460,23 +466,23 @@ class FusionOverlayUpdater:
                 _connect_input(delta_merge, "Background", row_merge)
                 _connect_input(delta_merge, "Foreground", row_delta)
                 output = delta_merge
-                merge_x += 2
 
             for summary_index, (key, summary_text) in enumerate(summaries):
                 y = top_y - ((1 + len(rows) + summary_index) * row_gap)
+                graph_y = len(rows) + summary_index + 1
                 summary_tool = _find_or_add_tool(
                     comp,
                     f"ResolveTimer{key}Text",
                     "TextPlus",
-                    merge_x,
-                    -1,
+                    4,
+                    graph_y,
                 )
                 summary_merge = _find_or_add_tool(
                     comp,
                     f"ResolveTimer{key}Merge",
                     "Merge",
-                    merge_x,
-                    0,
+                    7,
+                    graph_y,
                 )
                 _configure_text(
                     summary_tool,
@@ -490,7 +496,6 @@ class FusionOverlayUpdater:
                 _connect_input(summary_merge, "Background", output)
                 _connect_input(summary_merge, "Foreground", summary_tool)
                 output = summary_merge
-                merge_x += 1
 
             _set_input(media_out, "ColorGrade", "Color")
             _connect_input(media_out, "Input", output)
@@ -550,7 +555,7 @@ def _configure_panel(
     height: float,
 ) -> None:
     _set_input(background, "GlobalIn", start_frame)
-    _set_input(background, "UseFrameFormatSettings", 1)
+    _configure_background_canvas(background)
     _set_input(background, "TopLeftRed", 0.04)
     _set_input(background, "TopLeftGreen", 0.055)
     _set_input(background, "TopLeftBlue", 0.08)
@@ -564,7 +569,7 @@ def _configure_panel(
     _set_input(mask, "Height", height)
     _set_input(mask, "CornerRadius", 0.035)
     _set_input(border_background, "GlobalIn", start_frame)
-    _set_input(border_background, "UseFrameFormatSettings", 1)
+    _configure_background_canvas(border_background)
     _set_input(border_background, "TopLeftRed", 0.72)
     _set_input(border_background, "TopLeftGreen", 0.72)
     _set_input(border_background, "TopLeftBlue", 0.72)
@@ -590,6 +595,8 @@ def _configure_text(
 ) -> None:
     _set_input(tool, "Font", FusionOverlayUpdater.font_name)
     _set_input(tool, "Style", FusionOverlayUpdater.font_style)
+    _set_input(tool, "Width", OVERLAY_CANVAS_WIDTH)
+    _set_input(tool, "Height", OVERLAY_CANVAS_HEIGHT)
     _set_input(tool, "Size", size)
     _set_input(tool, "Center", {1: x, 2: y})
     _set_input(tool, "GlobalIn", start_frame)
@@ -599,6 +606,12 @@ def _configure_text(
     _set_input(tool, "Alpha1", color[3])
     if text is not None:
         _set_input(tool, "StyledText", text)
+
+
+def _configure_background_canvas(tool: object) -> None:
+    _set_input(tool, "UseFrameFormatSettings", 0)
+    _set_input(tool, "Width", OVERLAY_CANVAS_WIDTH)
+    _set_input(tool, "Height", OVERLAY_CANVAS_HEIGHT)
 
 
 def _fusion_comp_names(timeline_item: object) -> tuple[str, ...]:
@@ -640,6 +653,7 @@ def _find_or_add_tool(
 ) -> object:
     tool = _call_optional(comp, "FindTool", name)
     if tool is not None:
+        _set_tool_position(tool, x, y)
         return tool
     add_tool = getattr(comp, "AddTool", None)
     if not callable(add_tool):
@@ -652,7 +666,16 @@ def _find_or_add_tool(
         raise RuntimeError(f"Fusion could not name {tool_type} tool {name}")
     if set_attrs({"TOOLS_Name": name}) is False:
         raise RuntimeError(f"Fusion could not name {tool_type} tool {name}")
+    _set_tool_position(tool, x, y)
     return tool
+
+
+def _set_tool_position(tool: object, x: int, y: int) -> None:
+    set_attrs = getattr(tool, "SetAttrs", None)
+    if not callable(set_attrs):
+        return
+    if set_attrs({"TOOLS_XPos": x, "TOOLS_YPos": y}) is False:
+        raise RuntimeError(f"Fusion could not position tool at {x}, {y}")
 
 
 def _find_required_tool(comp: object, names: tuple[str, ...]) -> object:

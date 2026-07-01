@@ -6,6 +6,9 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
+DEPS_ROOT = PROJECT_ROOT / ".resolve_deps"
+if DEPS_ROOT.exists() and str(DEPS_ROOT) not in sys.path:
+    sys.path.insert(0, str(DEPS_ROOT))
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 

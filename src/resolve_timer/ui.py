@@ -35,15 +35,26 @@ def format_preview_summary(preview: RunPreview, comparison_mode: str = "best_lap
                 f"{row.label}: {format_duration(row.duration_seconds)} ({format_delta(row.delta_seconds)})"
             )
     if preview.stats.best_lap:
-        lines.append(f"Best: {format_duration(preview.stats.best_lap.timing.lap_seconds)}")
+        lines.append(
+            f"Best: {_format_summary_stat(preview.stats.best_lap.timing.lap_seconds, preview.best_lap_delta)}"
+        )
     if preview.stats.optimal_seconds is not None:
-        lines.append(f"Optimal: {format_duration(preview.stats.optimal_seconds)}")
+        lines.append(
+            f"Optimal: {_format_summary_stat(preview.stats.optimal_seconds, preview.optimal_lap_delta)}"
+        )
     if preview.matching_run:
         state = "changed" if preview.has_marker_changes else "matched"
         lines.append(f"History: {state} {preview.matching_run.id}")
     else:
         lines.append("History: no committed run")
     return "\n".join(lines)
+
+
+def _format_summary_stat(seconds: float, delta_seconds: float | None) -> str:
+    value = format_duration(seconds)
+    if delta_seconds is not None:
+        value = f"{value} ({format_delta(delta_seconds)})"
+    return value
 
 
 def run_interactive_tool(
@@ -269,6 +280,19 @@ class ResolveTimerWindow:
                             section_label("Media Pool History"),
                             ui.Label({"ID": "HistoryLabel", "Text": "-"}),
                             ui.Label({"ID": "StatsLabel", "Text": ""}),
+                            ui.HGroup(
+                                {"Weight": 0, "Spacing": 6},
+                                [
+                                    ui.Button(
+                                        {
+                                            "ID": "SummaryExportButton",
+                                            "Text": "Export Course Summary PNG",
+                                            "Weight": 0,
+                                        }
+                                    ),
+                                    ui.HGap(0, 1),
+                                ],
+                            ),
                         ],
                     ),
                     ui.HGroup(
@@ -338,6 +362,12 @@ class ResolveTimerWindow:
                                             "Text": "Update All Timeline Clips",
                                         }
                                     ),
+                                    ui.Button(
+                                        {
+                                            "ID": "TimelineRunsButton",
+                                            "Text": "Commit/Update Timeline Runs",
+                                        }
+                                    ),
                                     ui.HGap(0, 1),
                                 ],
                             ),
@@ -397,8 +427,10 @@ class ResolveTimerWindow:
         self.window.On.ConfirmDeleteButton.Clicked = self._on_confirm_delete
         self.window.On.ManageButton.Clicked = self._on_manage
         self.window.On.CoursesButton.Clicked = self._on_courses
+        self.window.On.SummaryExportButton.Clicked = self._on_summary_export
         self.window.On.OverlayButton.Clicked = self._on_overlay
         self.window.On.OverlayAllButton.Clicked = self._on_overlay_all
+        self.window.On.TimelineRunsButton.Clicked = self._on_timeline_runs
         self.window.On.CourseCombo.CurrentIndexChanged = self._on_course_changed
         self.window.On.ModeCombo.CurrentIndexChanged = self._on_mode_changed
 
@@ -443,8 +475,10 @@ class ResolveTimerWindow:
             self.items["DeleteButton"].Enabled = state.can_delete
             self.items["ManageButton"].Enabled = bool(state.selected_course_id)
             self.items["CoursesButton"].Enabled = True
+            self.items["SummaryExportButton"].Enabled = state.can_export_summary
             self.items["OverlayButton"].Enabled = state.can_update_overlay
             self.items["OverlayAllButton"].Enabled = state.can_update_overlay
+            self.items["TimelineRunsButton"].Enabled = state.can_update_overlay
             if not state.can_update:
                 self._hide_update_confirmation()
             if not state.can_delete:
@@ -582,6 +616,12 @@ class ResolveTimerWindow:
 
     def _on_overlay_all(self, _event) -> None:
         self.render(self.controller.update_all_overlays())
+
+    def _on_timeline_runs(self, _event) -> None:
+        self.render(self.controller.commit_update_timeline_runs())
+
+    def _on_summary_export(self, _event) -> None:
+        self.render(self.controller.export_course_summary_card())
 
     def _on_cancel_update(self, _event) -> None:
         self._hide_update_confirmation()

@@ -15,7 +15,8 @@ from .runtime_support import (
     load_preferences,
     save_preferences,
 )
-from .service import RunPreview, SelectedRunInput, TimerService
+from .service import RunPreview, SelectedRunInput, TimelineRunCandidate, TimerService
+from .summary_card import default_summary_card_path, render_course_summary_card
 from .timing import compute_timing, format_delta, format_duration
 
 
@@ -68,6 +69,7 @@ class ResolveTimerViewState:
     can_toggle_ignored: bool
     can_delete: bool
     can_update_overlay: bool
+    can_export_summary: bool
     matching_run_id: str | None
 
 
@@ -327,6 +329,61 @@ class ResolveTimerController:
         except Exception as exc:
             return self._mutation_error("Overlay update failed", exc)
 
+    def commit_update_timeline_runs(self) -> ResolveTimerViewState:
+        try:
+            service = TimerService.load(self.database_path)
+            if not self.selected_course_id:
+                raise ValueError("select a course before committing timeline runs")
+            timeline_items = _timeline_items_in_order(self.adapter.timeline_video_items())
+            if not timeline_items:
+                raise ValueError("current timeline has no video clips")
+
+            candidates: list[TimelineRunCandidate] = []
+            for index, timeline_item in enumerate(timeline_items, start=1):
+                label = f"clip {index}"
+                try:
+                    selected = self.adapter.timeline_item_media_pool_run(timeline_item)
+                    label = selected.filename
+                    candidates.append(
+                        TimelineRunCandidate(
+                            label=label,
+                            selected=self._selected_input(selected),
+                        )
+                    )
+                except Exception as exc:
+                    self._log_unexpected(f"timeline run {label}", exc)
+                    candidates.append(
+                        TimelineRunCandidate(label=label, skip_reason=str(exc))
+                    )
+
+            result = service.commit_or_update_timeline_runs(candidates)
+            if result.changed:
+                service.save(self.database_path)
+            self.service = TimerService.load(self.database_path)
+            state = self._state_after_overlay_action(_timeline_batch_status(result))
+            details = _timeline_batch_details(result)
+            if details:
+                return replace(state, error=details)
+            return state
+        except Exception as exc:
+            return self._mutation_error("Timeline commit/update failed", exc)
+
+    def export_course_summary_card(self, output_path: str | Path | None = None) -> ResolveTimerViewState:
+        try:
+            service = TimerService.load(self.database_path)
+            if not self.selected_course_id:
+                raise ValueError("select a course before exporting a summary")
+            payload = service.course_summary_payload(self.selected_course_id)
+            output = (
+                Path(output_path)
+                if output_path is not None
+                else default_summary_card_path(self.database_path, self.selected_course_id)
+            )
+            written = render_course_summary_card(payload, output)
+            return self._state_after_overlay_action(f"Exported course summary PNG: {written}")
+        except Exception as exc:
+            return self._mutation_error("Summary export failed", exc)
+
     def course_runs(self) -> tuple[RunRowState, ...]:
         service = TimerService.load(self.database_path)
         if not self.selected_course_id:
@@ -416,15 +473,15 @@ class ResolveTimerController:
             source_range="Full source clip",
             timing_rows=tuple(rows),
             history_status=history,
-            best_lap=(
-                "--:--.---"
+            best_lap=_format_summary_stat(
+                None
                 if preview.stats.best_lap is None
-                else format_duration(preview.stats.best_lap.timing.lap_seconds)
+                else preview.stats.best_lap.timing.lap_seconds,
+                preview.best_lap_delta,
             ),
-            optimal_lap=(
-                "--:--.---"
-                if preview.stats.optimal_seconds is None
-                else format_duration(preview.stats.optimal_seconds)
+            optimal_lap=_format_summary_stat(
+                preview.stats.optimal_seconds,
+                preview.optimal_lap_delta,
             ),
             status="Ready",
             error=None,
@@ -433,6 +490,7 @@ class ResolveTimerController:
             can_toggle_ignored=matching is not None,
             can_delete=matching is not None,
             can_update_overlay=True,
+            can_export_summary=bool(self.selected_course_id),
             matching_run_id=None if matching is None else matching.id,
         )
 
@@ -464,6 +522,7 @@ class ResolveTimerController:
             can_toggle_ignored=False,
             can_delete=False,
             can_update_overlay=bool(courses and self.selected_course_id),
+            can_export_summary=bool(courses and self.selected_course_id),
             matching_run_id=None,
         )
 
@@ -573,6 +632,62 @@ def _marker_source_label(value: str) -> str:
 
 def _with_status(state: ResolveTimerViewState, status: str) -> ResolveTimerViewState:
     return replace(state, status=status)
+
+
+def _format_summary_stat(seconds: float | None, delta_seconds: float | None) -> str:
+    if seconds is None:
+        return "--:--.---"
+    value = format_duration(seconds)
+    if delta_seconds is not None:
+        value = f"{value} ({format_delta(delta_seconds)})"
+    return value
+
+
+def _timeline_items_in_order(timeline_items: tuple[object, ...]) -> tuple[object, ...]:
+    starts = [_timeline_item_start(item) for item in timeline_items]
+    if starts and all(start is not None for start in starts):
+        return tuple(
+            item
+            for _start, _index, item in sorted(
+                (start, index, item)
+                for index, (start, item) in enumerate(zip(starts, timeline_items))
+            )
+        )
+    return timeline_items
+
+
+def _timeline_item_start(timeline_item: object) -> int | None:
+    method = getattr(timeline_item, "GetStart", None)
+    if not callable(method):
+        return None
+    try:
+        return int(method())
+    except (TypeError, ValueError):
+        return None
+
+
+def _timeline_batch_status(result) -> str:
+    return (
+        "Timeline runs: "
+        f"committed {result.committed}, "
+        f"updated {result.updated}, "
+        f"unchanged {result.unchanged}, "
+        f"skipped {result.skipped}, "
+        f"failed {result.failed}"
+    )
+
+
+def _timeline_batch_details(result) -> str | None:
+    messages = [
+        item.message
+        for item in result.items
+        if item.action in {"skipped", "failed"}
+    ]
+    if not messages:
+        return None
+    shown = messages[:8]
+    suffix = "" if len(messages) <= len(shown) else f"\n... and {len(messages) - len(shown)} more"
+    return "Timeline run issues:\n" + "\n".join(shown) + suffix
 
 
 def _skip_summary(skipped: list[str]) -> str | None:
