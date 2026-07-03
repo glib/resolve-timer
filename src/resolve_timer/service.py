@@ -55,6 +55,26 @@ class TimelineBatchResult:
 
 
 @dataclass(frozen=True)
+class TimelineOverlayPayloadItem:
+    label: str
+    payload: OverlayPayload | None = None
+    message: str | None = None
+
+
+@dataclass(frozen=True)
+class TimelineOverlayPayloadResult:
+    items: tuple[TimelineOverlayPayloadItem, ...]
+
+    @property
+    def payload_count(self) -> int:
+        return sum(1 for item in self.items if item.payload is not None)
+
+    @property
+    def skipped(self) -> int:
+        return sum(1 for item in self.items if item.payload is None)
+
+
+@dataclass(frozen=True)
 class ComparisonReferences:
     mode: str
     sector_seconds: tuple[float | None, ...]
@@ -266,7 +286,7 @@ class TimerService:
         self,
         candidates: list[TimelineRunCandidate],
     ) -> TimelineBatchResult:
-        baseline_runs = list(self.database.runs)
+        baseline_runs = self._timeline_initial_baseline(candidates)
         items: list[TimelineBatchItem] = []
         for candidate in candidates:
             label = candidate.label
@@ -313,6 +333,7 @@ class TimerService:
                         )
                     )
                 else:
+                    _upsert_run(baseline_runs, matching)
                     items.append(
                         TimelineBatchItem(
                             label=label,
@@ -339,6 +360,49 @@ class TimerService:
                     )
                 )
         return _timeline_batch_result(items)
+
+    def chronological_overlay_payloads(
+        self,
+        candidates: list[TimelineRunCandidate],
+        *,
+        comparison_mode: str = "best_lap",
+    ) -> TimelineOverlayPayloadResult:
+        baseline_runs = self._timeline_initial_baseline(candidates)
+        items: list[TimelineOverlayPayloadItem] = []
+        for candidate in candidates:
+            label = candidate.label
+            if candidate.selected is None:
+                reason = candidate.skip_reason or "no source clip"
+                items.append(
+                    TimelineOverlayPayloadItem(
+                        label=label,
+                        message=f"{label}: {reason}",
+                    )
+                )
+                continue
+
+            selected = candidate.selected
+            label = label or selected.filename
+            try:
+                preview = self.preview(selected, stats_runs=baseline_runs)
+                payload = self._overlay_payload_from_preview(
+                    selected,
+                    preview,
+                    comparison_mode=comparison_mode,
+                )
+                items.append(TimelineOverlayPayloadItem(label=label, payload=payload))
+                _upsert_run(
+                    baseline_runs,
+                    self._timeline_baseline_run(selected, preview, baseline_runs),
+                )
+            except (MarkerValidationError, ValueError) as exc:
+                items.append(
+                    TimelineOverlayPayloadItem(
+                        label=label,
+                        message=f"{label}: {exc}",
+                    )
+                )
+        return TimelineOverlayPayloadResult(items=tuple(items))
 
     def _new_run_from_preview(
         self,
@@ -389,6 +453,53 @@ class TimerService:
             metadata=dict(existing.metadata),
         )
 
+    def _timeline_initial_baseline(
+        self,
+        candidates: list[TimelineRunCandidate],
+    ) -> list[RunRecord]:
+        matched_run_ids = {
+            run.id
+            for candidate in candidates
+            if candidate.selected is not None
+            for run in [self._matching_run_for_selected(candidate.selected)]
+            if run is not None
+        }
+        return [run for run in self.database.runs if run.id not in matched_run_ids]
+
+    def _matching_run_for_selected(self, selected: SelectedRunInput) -> RunRecord | None:
+        try:
+            course = self.database.course_by_id(selected.course_id)
+            snapshot = parse_marker_snapshot(list(selected.markers), course)
+        except (MarkerValidationError, ValueError, KeyError):
+            return None
+        return find_matching_run(
+            self.database.runs,
+            course_id=course.id,
+            filename=selected.filename,
+            marker_frames=snapshot,
+            clip_id=selected.clip_id,
+        )
+
+    def _timeline_baseline_run(
+        self,
+        selected: SelectedRunInput,
+        preview: RunPreview,
+        baseline_runs: list[RunRecord],
+    ) -> RunRecord:
+        matching = preview.matching_run
+        if matching is None:
+            return self._new_run_from_preview(
+                selected,
+                preview,
+                run_id=_next_run_id(
+                    baseline_runs,
+                    selected.run_date or date.today().isoformat(),
+                ),
+            )
+        if preview.has_marker_changes:
+            return self._updated_run_from_preview(selected, preview, matching)
+        return matching
+
     def set_ignored(self, run_id: str, ignored: bool) -> RunRecord:
         for existing in self.database.runs:
             if existing.id == run_id:
@@ -407,8 +518,22 @@ class TimerService:
         selected: SelectedRunInput,
         *,
         comparison_mode: str = "best_lap",
+        stats_runs: list[RunRecord] | None = None,
     ) -> OverlayPayload:
-        preview = self.preview(selected)
+        preview = self.preview(selected, stats_runs=stats_runs)
+        return self._overlay_payload_from_preview(
+            selected,
+            preview,
+            comparison_mode=comparison_mode,
+        )
+
+    def _overlay_payload_from_preview(
+        self,
+        selected: SelectedRunInput,
+        preview: RunPreview,
+        *,
+        comparison_mode: str,
+    ) -> OverlayPayload:
         references = _references_for_mode(preview, comparison_mode)
         return build_overlay_payload(
             course=preview.course,

@@ -231,6 +231,9 @@ class FusionOverlayUpdater:
     panel_border_background_name = "ResolveTimerPanelBorderBackground"
     panel_border_mask_name = "ResolveTimerPanelBorderMask"
     panel_border_merge_name = "ResolveTimerPanelBorderMerge"
+    source_canvas_background_name = "ResolveTimerSourceCanvasBackground"
+    source_canvas_merge_name = "ResolveTimerSourceCanvasMerge"
+    source_transform_name = "ResolveTimerSourceTransform"
 
     def update_or_create(
         self,
@@ -337,6 +340,27 @@ class FusionOverlayUpdater:
                 3,
                 0,
             )
+            source_canvas_background = _find_or_add_tool(
+                comp,
+                self.source_canvas_background_name,
+                "Background",
+                1,
+                -3,
+            )
+            source_canvas_merge = _find_or_add_tool(
+                comp,
+                self.source_canvas_merge_name,
+                "Merge",
+                2,
+                -3,
+            )
+            source_transform = _find_or_add_tool(
+                comp,
+                self.source_transform_name,
+                "Transform",
+                3,
+                -3,
+            )
             media_in = _find_required_tool(comp, ("MediaIn1", "MediaIn"))
             media_out = _find_required_tool(comp, ("MediaOut1", "MediaOut"))
             _set_tool_position(media_in, 0, 0)
@@ -374,8 +398,12 @@ class FusionOverlayUpdater:
                 width=panel_width,
                 height=panel_height,
             )
-            _connect_input(panel_blur, "Input", media_in)
-            _connect_input(panel_blur_merge, "Background", media_in)
+            _configure_transparent_canvas(source_canvas_background)
+            _connect_input(source_canvas_merge, "Background", source_canvas_background)
+            _connect_input(source_canvas_merge, "Foreground", media_in)
+            _connect_input(source_transform, "Input", source_canvas_merge)
+            _connect_input(panel_blur, "Input", source_transform)
+            _connect_input(panel_blur_merge, "Background", source_transform)
             _connect_input(panel_blur_merge, "Foreground", panel_blur)
             _connect_input(panel_blur_merge, "EffectMask", panel_mask)
             _set_expression(
@@ -595,6 +623,7 @@ def _configure_text(
 ) -> None:
     _set_input(tool, "Font", FusionOverlayUpdater.font_name)
     _set_input(tool, "Style", FusionOverlayUpdater.font_style)
+    _set_input(tool, "UseFrameFormatSettings", 0)
     _set_input(tool, "Width", OVERLAY_CANVAS_WIDTH)
     _set_input(tool, "Height", OVERLAY_CANVAS_HEIGHT)
     _set_input(tool, "Size", size)
@@ -612,6 +641,14 @@ def _configure_background_canvas(tool: object) -> None:
     _set_input(tool, "UseFrameFormatSettings", 0)
     _set_input(tool, "Width", OVERLAY_CANVAS_WIDTH)
     _set_input(tool, "Height", OVERLAY_CANVAS_HEIGHT)
+
+
+def _configure_transparent_canvas(tool: object) -> None:
+    _configure_background_canvas(tool)
+    _set_input(tool, "TopLeftRed", 0.0)
+    _set_input(tool, "TopLeftGreen", 0.0)
+    _set_input(tool, "TopLeftBlue", 0.0)
+    _set_input(tool, "TopLeftAlpha", 0.0)
 
 
 def _fusion_comp_names(timeline_item: object) -> tuple[str, ...]:

@@ -289,6 +289,151 @@ class ServiceCliTests(unittest.TestCase):
         ])
         self.assertFalse(any(run.ignored for run in service.database.runs[1:]))
 
+    def test_timeline_batch_existing_runs_do_not_compare_against_later_timeline_runs(self):
+        service = TimerService(TimerDatabase([self.course], []))
+        baseline = SelectedRunInput(
+            course_id="course",
+            filename="Baseline.MP4",
+            source_fps=100.0,
+            markers=(
+                RawMarker("Start", 0),
+                RawMarker("S1", 100),
+                RawMarker("Finish", 320),
+            ),
+            clip_id="baseline",
+            run_date="2026-05-31",
+        )
+        first = SelectedRunInput(
+            course_id="course",
+            filename="First.MP4",
+            source_fps=100.0,
+            markers=(
+                RawMarker("Start", 0),
+                RawMarker("S1", 100),
+                RawMarker("Finish", 300),
+            ),
+            clip_id="first",
+            run_date="2026-05-31",
+        )
+        second = SelectedRunInput(
+            course_id="course",
+            filename="Second.MP4",
+            source_fps=100.0,
+            markers=(
+                RawMarker("Start", 0),
+                RawMarker("S1", 95),
+                RawMarker("Finish", 290),
+            ),
+            clip_id="second",
+            run_date="2026-05-31",
+        )
+        third = SelectedRunInput(
+            course_id="course",
+            filename="Third.MP4",
+            source_fps=100.0,
+            markers=(
+                RawMarker("Start", 0),
+                RawMarker("S1", 90),
+                RawMarker("Finish", 280),
+            ),
+            clip_id="third",
+            run_date="2026-05-31",
+        )
+        for run_id, selected in (
+            ("baseline", baseline),
+            ("first", first),
+            ("second", second),
+            ("third", third),
+        ):
+            service.commit_new_run(selected, run_id=run_id)
+
+        result = service.commit_or_update_timeline_runs(
+            [
+                TimelineRunCandidate("First.MP4", first),
+                TimelineRunCandidate("Second.MP4", second),
+                TimelineRunCandidate("Third.MP4", third),
+            ]
+        )
+
+        self.assertEqual(result.unchanged, 3)
+        self.assertEqual(
+            [item.preview.best_lap_references.lap_seconds for item in result.items],
+            [3.2, 3.0, 2.9],
+        )
+
+    def test_chronological_overlay_payloads_exclude_later_timeline_runs(self):
+        service = TimerService(TimerDatabase([self.course], []))
+        baseline = SelectedRunInput(
+            course_id="course",
+            filename="Baseline.MP4",
+            source_fps=100.0,
+            markers=(
+                RawMarker("Start", 0),
+                RawMarker("S1", 100),
+                RawMarker("Finish", 320),
+            ),
+            clip_id="baseline",
+            run_date="2026-05-31",
+        )
+        first = SelectedRunInput(
+            course_id="course",
+            filename="First.MP4",
+            source_fps=100.0,
+            markers=(
+                RawMarker("Start", 0),
+                RawMarker("S1", 100),
+                RawMarker("Finish", 300),
+            ),
+            clip_id="first",
+            run_date="2026-05-31",
+        )
+        second = SelectedRunInput(
+            course_id="course",
+            filename="Second.MP4",
+            source_fps=100.0,
+            markers=(
+                RawMarker("Start", 0),
+                RawMarker("S1", 95),
+                RawMarker("Finish", 290),
+            ),
+            clip_id="second",
+            run_date="2026-05-31",
+        )
+        third = SelectedRunInput(
+            course_id="course",
+            filename="Third.MP4",
+            source_fps=100.0,
+            markers=(
+                RawMarker("Start", 0),
+                RawMarker("S1", 90),
+                RawMarker("Finish", 280),
+            ),
+            clip_id="third",
+            run_date="2026-05-31",
+        )
+        for run_id, selected in (
+            ("baseline", baseline),
+            ("first", first),
+            ("second", second),
+            ("third", third),
+        ):
+            service.commit_new_run(selected, run_id=run_id)
+
+        result = service.chronological_overlay_payloads(
+            [
+                TimelineRunCandidate("First.MP4", first),
+                TimelineRunCandidate("Second.MP4", second),
+                TimelineRunCandidate("Third.MP4", third),
+            ],
+            comparison_mode="best_lap",
+        )
+
+        self.assertEqual(result.payload_count, 3)
+        self.assertEqual(
+            [item.payload.best_lap_seconds for item in result.items],
+            [3.2, 3.0, 2.9],
+        )
+
     def test_timeline_batch_handles_unchanged_changed_ignored_and_invalid_runs(self):
         service = TimerService(TimerDatabase([self.course], []))
         unchanged = service.commit_new_run(

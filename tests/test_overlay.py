@@ -153,15 +153,46 @@ class OverlayTests(unittest.TestCase):
             "ResolveTimerBestText",
             "ResolveTimerOptimalText",
         ):
+            self.assertEqual(comp.tools[name].inputs["UseFrameFormatSettings"], 0)
             self.assertEqual(comp.tools[name].inputs["Width"], OVERLAY_CANVAS_WIDTH)
             self.assertEqual(comp.tools[name].inputs["Height"], OVERLAY_CANVAS_HEIGHT)
+        self.assertEqual(
+            comp.tools["ResolveTimerSourceCanvasBackground"].inputs[
+                "UseFrameFormatSettings"
+            ],
+            0,
+        )
+        self.assertEqual(
+            comp.tools["ResolveTimerSourceCanvasBackground"].inputs["Width"],
+            OVERLAY_CANVAS_WIDTH,
+        )
+        self.assertEqual(
+            comp.tools["ResolveTimerSourceCanvasBackground"].inputs["Height"],
+            OVERLAY_CANVAS_HEIGHT,
+        )
+        self.assertEqual(
+            comp.tools["ResolveTimerSourceCanvasBackground"].inputs["TopLeftAlpha"],
+            0.0,
+        )
         self.assertIs(
-            comp.tools["ResolveTimerPanelBlur"].connections["Input"],
+            comp.tools["ResolveTimerSourceCanvasMerge"].connections["Background"],
+            comp.tools["ResolveTimerSourceCanvasBackground"],
+        )
+        self.assertIs(
+            comp.tools["ResolveTimerSourceCanvasMerge"].connections["Foreground"],
             comp.tools["MediaIn1"],
         )
         self.assertIs(
+            comp.tools["ResolveTimerSourceTransform"].connections["Input"],
+            comp.tools["ResolveTimerSourceCanvasMerge"],
+        )
+        self.assertIs(
+            comp.tools["ResolveTimerPanelBlur"].connections["Input"],
+            comp.tools["ResolveTimerSourceTransform"],
+        )
+        self.assertIs(
             comp.tools["ResolveTimerPanelBlurMerge"].connections["Background"],
-            comp.tools["MediaIn1"],
+            comp.tools["ResolveTimerSourceTransform"],
         )
         self.assertIs(
             comp.tools["ResolveTimerPanelBlurMerge"].connections["Foreground"],

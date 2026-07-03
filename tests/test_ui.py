@@ -590,6 +590,91 @@ class UiTests(unittest.TestCase):
         self.assertEqual(updater.calls[1][1].marker_frames["Finish"], 160)
         self.assertEqual(updater.calls[1][1].source_fps, 50.0)
 
+    def test_controller_update_all_overlays_uses_chronological_references(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "timer_db.yaml"
+            course = Course("course", "Course", 2)
+            baseline_markers = (
+                RawMarker("Start", 0),
+                RawMarker("S1", 100),
+                RawMarker("Finish", 320),
+            )
+            first_markers = (
+                RawMarker("Start", 0),
+                RawMarker("S1", 100),
+                RawMarker("Finish", 300),
+            )
+            second_markers = (
+                RawMarker("Start", 0),
+                RawMarker("S1", 95),
+                RawMarker("Finish", 290),
+            )
+            third_markers = (
+                RawMarker("Start", 0),
+                RawMarker("S1", 90),
+                RawMarker("Finish", 280),
+            )
+            service = TimerService(TimerDatabase([course], []))
+            for run_id, filename, markers, clip_id in (
+                ("baseline", "Baseline.MP4", baseline_markers, "baseline"),
+                ("first", "First.MP4", first_markers, "first"),
+                ("second", "Second.MP4", second_markers, "second"),
+                ("third", "Third.MP4", third_markers, "third"),
+            ):
+                service.commit_new_run(
+                    SelectedRunInput(
+                        course_id="course",
+                        filename=filename,
+                        source_fps=100.0,
+                        markers=markers,
+                        clip_id=clip_id,
+                    ),
+                    run_id=run_id,
+                )
+            service.save(db_path)
+            adapter = FakeControllerAdapter(
+                timeline_runs=[
+                    {
+                        "filename": "Third.MP4",
+                        "markers": third_markers,
+                        "clip_id": "third",
+                        "start": 30,
+                    },
+                    {
+                        "filename": "First.MP4",
+                        "markers": first_markers,
+                        "clip_id": "first",
+                        "start": 10,
+                    },
+                    {
+                        "filename": "Second.MP4",
+                        "markers": second_markers,
+                        "clip_id": "second",
+                        "start": 20,
+                    },
+                ]
+            )
+            updater = FakeOverlayUpdater()
+            controller = ResolveTimerController(
+                db_path,
+                adapter,
+                overlay_updater=updater,
+            )
+            controller.initialize()
+
+            state = controller.update_all_overlays()
+
+        self.assertEqual(state.status, "Updated live overlays for 3 timeline clip(s)")
+        self.assertIsNone(state.error)
+        self.assertEqual(
+            [payload.best_lap_seconds for _item, payload in updater.calls],
+            [3.2, 3.0, 2.9],
+        )
+        self.assertEqual(
+            [payload.marker_frames["Finish"] for _item, payload in updater.calls],
+            [300, 290, 280],
+        )
+
     def test_controller_update_all_reports_skipped_timeline_clips(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "timer_db.yaml"

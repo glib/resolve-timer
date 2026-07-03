@@ -296,22 +296,55 @@ class ResolveTimerController:
     def update_all_overlays(self) -> ResolveTimerViewState:
         try:
             service = self._overlay_service()
-            timeline_items = self.adapter.timeline_video_items()
+            timeline_items = _timeline_items_in_order(self.adapter.timeline_video_items())
             if not timeline_items:
                 raise ValueError("current timeline has no video clips")
 
             updated = 0
             skipped: list[str] = []
+            candidates: list[TimelineRunCandidate] = []
+            ordered_items: list[object] = []
             for index, timeline_item in enumerate(timeline_items, start=1):
                 label = f"clip {index}"
                 try:
                     selected = self.adapter.timeline_item_media_pool_run(timeline_item)
                     label = selected.filename
-                    self._update_timeline_item_overlay(service, timeline_item, selected)
-                    updated += 1
                 except Exception as exc:
                     self._log_unexpected(f"update all overlays {label}", exc)
-                    skipped.append(f"{label}: {exc}")
+                    candidates.append(
+                        TimelineRunCandidate(label=label, skip_reason=str(exc))
+                    )
+                    ordered_items.append(timeline_item)
+                    continue
+                candidates.append(
+                    TimelineRunCandidate(
+                        label=label,
+                        selected=self._selected_input(selected),
+                    )
+                )
+                ordered_items.append(timeline_item)
+
+            payloads = service.chronological_overlay_payloads(
+                candidates,
+                comparison_mode=self.comparison_mode,
+            )
+            for timeline_item, payload_item in zip(ordered_items, payloads.items):
+                if payload_item.payload is None:
+                    if payload_item.message:
+                        skipped.append(payload_item.message)
+                    continue
+                try:
+                    self.overlay_updater.update_or_create(
+                        timeline_item,
+                        payload_item.payload,
+                    )
+                    updated += 1
+                except Exception as exc:
+                    self._log_unexpected(
+                        f"update all overlays {payload_item.label}",
+                        exc,
+                    )
+                    skipped.append(f"{payload_item.label}: {exc}")
 
             if updated == 0:
                 return replace(
