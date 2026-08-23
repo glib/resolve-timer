@@ -18,6 +18,7 @@ class PreferencesError(ValueError):
 class UserPreferences:
     course_id: str | None = None
     comparison_mode: str = "best_lap"
+    summary_output_directory: str | None = None
 
 
 def load_preferences(path: str | Path) -> UserPreferences:
@@ -40,7 +41,18 @@ def load_preferences(path: str | Path) -> UserPreferences:
         raise PreferencesError(
             "preference comparison_mode must be best_lap or optimal"
         )
-    return UserPreferences(course_id=course_id, comparison_mode=comparison_mode)
+    summary_output_directory = raw.get("summary_output_directory")
+    if summary_output_directory is not None and not isinstance(
+        summary_output_directory, str
+    ):
+        raise PreferencesError(
+            "preference summary_output_directory must be a string or null"
+        )
+    return UserPreferences(
+        course_id=course_id,
+        comparison_mode=comparison_mode,
+        summary_output_directory=summary_output_directory,
+    )
 
 
 def save_preferences(path: str | Path, preferences: UserPreferences) -> None:

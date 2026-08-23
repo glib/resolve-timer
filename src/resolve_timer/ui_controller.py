@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Callable
 
 from .database import TimerDatabase
 from .markers import MarkerValidationError, parse_marker_snapshot
@@ -50,6 +54,7 @@ class CourseRowState:
 @dataclass(frozen=True)
 class ResolveTimerViewState:
     database_path: str
+    summary_output_directory: str
     courses: tuple[tuple[str, str], ...]
     selected_course_id: str | None
     comparison_mode: str
@@ -82,6 +87,7 @@ class ResolveTimerController:
         preferences_path: str | Path | None = None,
         log_path: str | Path | None = None,
         overlay_updater: FusionOverlayUpdater | None = None,
+        directory_opener: Callable[[Path], None] | None = None,
     ):
         self.database_path = Path(database_path)
         self.preferences_path = (
@@ -96,9 +102,11 @@ class ResolveTimerController:
         )
         self.adapter = adapter
         self.overlay_updater = overlay_updater or FusionOverlayUpdater()
+        self.directory_opener = directory_opener or _open_directory
         self.service: TimerService | None = None
         self.selected_course_id: str | None = None
         self.comparison_mode = "best_lap"
+        self.summary_output_directory = self.database_path.parent
 
     def initialize(self) -> ResolveTimerViewState:
         preference_warning = None
@@ -106,6 +114,10 @@ class ResolveTimerController:
             preferences = load_preferences(self.preferences_path)
             self.selected_course_id = preferences.course_id
             self.comparison_mode = preferences.comparison_mode
+            if preferences.summary_output_directory:
+                self.summary_output_directory = Path(
+                    preferences.summary_output_directory
+                )
         except PreferencesError as exc:
             preference_warning = str(exc)
         try:
@@ -401,7 +413,34 @@ class ResolveTimerController:
         except Exception as exc:
             return self._mutation_error("Timeline commit/update failed", exc)
 
-    def export_course_summary_card(self, output_path: str | Path | None = None) -> ResolveTimerViewState:
+    def set_summary_output_directory(
+        self, directory: str | Path
+    ) -> ResolveTimerViewState:
+        try:
+            output_directory = Path(directory).expanduser().resolve()
+            if not output_directory.is_dir():
+                raise ValueError(f"summary output folder does not exist: {output_directory}")
+            self.summary_output_directory = output_directory
+            state = self._state_after_overlay_action(
+                f"Summary output folder set to: {output_directory}"
+            )
+            return self._persist_preferences(state)
+        except Exception as exc:
+            return self._mutation_error("Setting summary output folder failed", exc)
+
+    def open_summary_output_directory(self) -> ResolveTimerViewState:
+        try:
+            self.summary_output_directory.mkdir(parents=True, exist_ok=True)
+            self.directory_opener(self.summary_output_directory)
+            return self._state_after_overlay_action(
+                f"Opened summary output folder: {self.summary_output_directory}"
+            )
+        except Exception as exc:
+            return self._mutation_error("Opening summary output folder failed", exc)
+
+    def export_course_summary_card(
+        self, output_path: str | Path | None = None
+    ) -> ResolveTimerViewState:
         try:
             service = TimerService.load(self.database_path)
             if not self.selected_course_id:
@@ -410,7 +449,11 @@ class ResolveTimerController:
             output = (
                 Path(output_path)
                 if output_path is not None
-                else default_summary_card_path(self.database_path, self.selected_course_id)
+                else default_summary_card_path(
+                    self.database_path,
+                    self.selected_course_id,
+                    output_directory=self.summary_output_directory,
+                )
             )
             written = render_course_summary_card(payload, output)
             return self._state_after_overlay_action(f"Exported course summary PNG: {written}")
@@ -496,6 +539,7 @@ class ResolveTimerController:
 
         return ResolveTimerViewState(
             database_path=str(self.database_path),
+            summary_output_directory=str(self.summary_output_directory),
             courses=courses,
             selected_course_id=self.selected_course_id,
             comparison_mode=self.comparison_mode,
@@ -536,6 +580,7 @@ class ResolveTimerController:
     ) -> ResolveTimerViewState:
         return ResolveTimerViewState(
             database_path=str(self.database_path),
+            summary_output_directory=str(self.summary_output_directory),
             courses=courses,
             selected_course_id=self.selected_course_id,
             comparison_mode=self.comparison_mode,
@@ -595,6 +640,9 @@ class ResolveTimerController:
             source_fps=selected.source_fps,
             markers=selected.source_markers,
             clip_id=selected.clip_id,
+            capture_time=getattr(selected, "capture_time", None),
+            capture_time_source=getattr(selected, "capture_time_source", None),
+            source_path=getattr(selected, "source_path", None),
         )
 
     def _state_after_overlay_action(self, status: str) -> ResolveTimerViewState:
@@ -615,6 +663,7 @@ class ResolveTimerController:
                 UserPreferences(
                     course_id=self.selected_course_id,
                     comparison_mode=self.comparison_mode,
+                    summary_output_directory=str(self.summary_output_directory),
                 ),
             )
             return state
@@ -655,6 +704,15 @@ class ResolveTimerController:
     @staticmethod
     def _courses(database: TimerDatabase) -> tuple[tuple[str, str], ...]:
         return tuple((course.id, course.name) for course in database.courses)
+
+
+def _open_directory(path: Path) -> None:
+    if sys.platform == "win32":
+        os.startfile(path)  # type: ignore[attr-defined]
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", str(path)])
+    else:
+        subprocess.Popen(["xdg-open", str(path)])
 
 
 def _marker_source_label(value: str) -> str:

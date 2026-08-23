@@ -4,8 +4,14 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Any
 
+from .capture_time import (
+    DATE_FALLBACK_SOURCE,
+    capture_time_from_date,
+    normalize_capture_time,
+)
 
-SCHEMA_VERSION = 1
+
+SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -66,6 +72,9 @@ class RunRecord:
     filename: str
     source_fps: float
     marker_frames: dict[str, int]
+    capture_time: str | None = None
+    capture_time_source: str | None = None
+    source_path: str | None = None
     clip_id: str | None = None
     fingerprint: str | None = None
     committed: bool = True
@@ -75,13 +84,26 @@ class RunRecord:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "RunRecord":
+        run_date = str(data.get("date") or date.today().isoformat())
+        capture_time = normalize_capture_time(data.get("capture_time"))
+        capture_time_source = data.get("capture_time_source")
+        if capture_time is None:
+            capture_time = capture_time_from_date(run_date)
+            capture_time_source = capture_time_source or DATE_FALLBACK_SOURCE
         return cls(
             id=str(data["id"]),
             course_id=str(data["course_id"]),
-            date=str(data.get("date") or date.today().isoformat()),
+            date=run_date,
             filename=str(data.get("filename") or ""),
             source_fps=float(data["source_fps"]),
             marker_frames={str(k): int(v) for k, v in data["marker_frames"].items()},
+            capture_time=capture_time,
+            capture_time_source=(
+                None if capture_time_source in (None, "") else str(capture_time_source)
+            ),
+            source_path=(
+                None if data.get("source_path") in (None, "") else str(data.get("source_path"))
+            ),
             clip_id=data.get("clip_id"),
             fingerprint=data.get("fingerprint"),
             committed=bool(data.get("committed", True)),
@@ -101,6 +123,12 @@ class RunRecord:
             "ignored": self.ignored,
             "marker_frames": dict(sorted(self.marker_frames.items())),
         }
+        if self.capture_time:
+            data["capture_time"] = self.capture_time
+        if self.capture_time_source:
+            data["capture_time_source"] = self.capture_time_source
+        if self.source_path:
+            data["source_path"] = self.source_path
         if self.clip_id:
             data["clip_id"] = self.clip_id
         if self.fingerprint:

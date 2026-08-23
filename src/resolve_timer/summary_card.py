@@ -105,11 +105,16 @@ def default_summary_card_path(
     course_id: str,
     *,
     now: datetime | None = None,
+    output_directory: str | Path | None = None,
 ) -> Path:
     stamp = (now or datetime.now()).strftime("%Y%m%d_%H%M%S")
     safe_course_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", course_id).strip("._") or "course"
-    db_path = Path(database_path)
-    return db_path.with_name(f"resolve_timer_summary_{safe_course_id}_{stamp}.png")
+    directory = (
+        Path(output_directory)
+        if output_directory is not None
+        else Path(database_path).parent
+    )
+    return directory / f"resolve_timer_summary_{safe_course_id}_{stamp}.png"
 
 
 def render_course_summary_card(payload: CourseSummaryPayload, output_path: str | Path) -> Path:

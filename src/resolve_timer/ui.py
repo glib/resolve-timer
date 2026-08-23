@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 from .resolve_adapter import ResolveAdapter, ResolveAdapterError
 from .runtime_support import append_exception_log, write_startup_diagnostics
@@ -111,7 +112,12 @@ def run_interactive_tool(
             preferences_path=preferences,
             log_path=log,
         )
-        window = ResolveTimerWindow(ui, dispatcher_factory(ui), controller)
+        window = ResolveTimerWindow(
+            ui,
+            dispatcher_factory(ui),
+            controller,
+            directory_picker=getattr(fusion, "RequestDir", None),
+        )
         window.run()
     except Exception as exc:
         append_exception_log(log, "interactive tool", exc)
@@ -119,10 +125,18 @@ def run_interactive_tool(
 
 
 class ResolveTimerWindow:
-    def __init__(self, ui: object, dispatcher: object, controller: ResolveTimerController):
+    def __init__(
+        self,
+        ui: object,
+        dispatcher: object,
+        controller: ResolveTimerController,
+        *,
+        directory_picker: Callable[[str], str | None] | None = None,
+    ):
         self.ui = ui
         self.dispatcher = dispatcher
         self.controller = controller
+        self.directory_picker = directory_picker
         self._rendering = False
         self._course_ids: list[str] = []
         self._mode_combo_initialized = False
@@ -280,6 +294,14 @@ class ResolveTimerWindow:
                             section_label("Media Pool History"),
                             ui.Label({"ID": "HistoryLabel", "Text": "-"}),
                             ui.Label({"ID": "StatsLabel", "Text": ""}),
+                            ui.Label(
+                                {
+                                    "ID": "SummaryFolderLabel",
+                                    "Text": "",
+                                    "WordWrap": True,
+                                    "Weight": 0,
+                                }
+                            ),
                             ui.HGroup(
                                 {"Weight": 0, "Spacing": 6},
                                 [
@@ -287,6 +309,20 @@ class ResolveTimerWindow:
                                         {
                                             "ID": "SummaryExportButton",
                                             "Text": "Export Course Summary PNG",
+                                            "Weight": 0,
+                                        }
+                                    ),
+                                    ui.Button(
+                                        {
+                                            "ID": "SummarySetFolderButton",
+                                            "Text": "Set Folder...",
+                                            "Weight": 0,
+                                        }
+                                    ),
+                                    ui.Button(
+                                        {
+                                            "ID": "SummaryOpenFolderButton",
+                                            "Text": "Open Folder",
                                             "Weight": 0,
                                         }
                                     ),
@@ -428,6 +464,8 @@ class ResolveTimerWindow:
         self.window.On.ManageButton.Clicked = self._on_manage
         self.window.On.CoursesButton.Clicked = self._on_courses
         self.window.On.SummaryExportButton.Clicked = self._on_summary_export
+        self.window.On.SummarySetFolderButton.Clicked = self._on_summary_set_folder
+        self.window.On.SummaryOpenFolderButton.Clicked = self._on_summary_open_folder
         self.window.On.OverlayButton.Clicked = self._on_overlay
         self.window.On.OverlayAllButton.Clicked = self._on_overlay_all
         self.window.On.TimelineRunsButton.Clicked = self._on_timeline_runs
@@ -459,6 +497,9 @@ class ResolveTimerWindow:
             self.items["StatsLabel"].Text = (
                 f"Best lap: {state.best_lap}    Optimal: {state.optimal_lap}"
             )
+            self.items["SummaryFolderLabel"].Text = (
+                f"Summary folder: {state.summary_output_directory}"
+            )
             error_text = self.items["ErrorText"]
             error_text.Visible = state.error is not None
             error_text.PlainText = "" if state.error is None else f"Error: {state.error}"
@@ -476,6 +517,8 @@ class ResolveTimerWindow:
             self.items["ManageButton"].Enabled = bool(state.selected_course_id)
             self.items["CoursesButton"].Enabled = True
             self.items["SummaryExportButton"].Enabled = state.can_export_summary
+            self.items["SummarySetFolderButton"].Enabled = self.directory_picker is not None
+            self.items["SummaryOpenFolderButton"].Enabled = True
             self.items["OverlayButton"].Enabled = state.can_update_overlay
             self.items["OverlayAllButton"].Enabled = state.can_update_overlay
             self.items["TimelineRunsButton"].Enabled = state.can_update_overlay
@@ -622,6 +665,16 @@ class ResolveTimerWindow:
 
     def _on_summary_export(self, _event) -> None:
         self.render(self.controller.export_course_summary_card())
+
+    def _on_summary_set_folder(self, _event) -> None:
+        if self.directory_picker is None or self._state is None:
+            return
+        selected = self.directory_picker(self._state.summary_output_directory)
+        if selected:
+            self.render(self.controller.set_summary_output_directory(selected))
+
+    def _on_summary_open_folder(self, _event) -> None:
+        self.render(self.controller.open_summary_output_directory())
 
     def _on_cancel_update(self, _event) -> None:
         self._hide_update_confirmation()

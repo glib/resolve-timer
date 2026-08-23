@@ -31,6 +31,8 @@ class ServiceCliTests(unittest.TestCase):
             markers=self.markers,
             clip_id="clip-1",
             run_date="2026-05-31",
+            capture_time="2026-05-31T10:05:00Z",
+            capture_time_source="manual",
         )
 
     def test_commit_preview_update_ignore_delete_workflow(self):
@@ -50,10 +52,10 @@ class ServiceCliTests(unittest.TestCase):
         preview = service.preview(self.selected)
         self.assertEqual(preview.matching_run.id, "run_custom")
         self.assertFalse(preview.has_marker_changes)
-        self.assertEqual(preview.best_lap_references.lap_seconds, 3.0)
+        self.assertIsNone(preview.best_lap_references.lap_seconds)
         self.assertEqual(
             [(row.label, row.delta_seconds) for row in preview.comparison_rows()],
-            [("S1", 0.0), ("S2", 0.0), ("LAP", 0.0)],
+            [("S1", None), ("S2", None), ("LAP", None)],
         )
 
         payload = service.overlay_payload(self.selected)
@@ -61,7 +63,7 @@ class ServiceCliTests(unittest.TestCase):
         self.assertEqual(payload.comparison_mode, "best_lap")
         self.assertEqual(payload.start_frame, 0)
         self.assertEqual(payload.finish_frame, 300)
-        self.assertEqual(payload.sector_reference_seconds, (1.0, 2.0))
+        self.assertEqual(payload.sector_reference_seconds, (None, None))
 
         changed = SelectedRunInput(
             course_id="course",
@@ -161,6 +163,8 @@ class ServiceCliTests(unittest.TestCase):
             ),
             clip_id="baseline",
             run_date="2026-05-31",
+            capture_time="2026-05-31T10:00:00Z",
+            capture_time_source="manual",
         )
         service.commit_new_run(
             baseline,
@@ -191,6 +195,8 @@ class ServiceCliTests(unittest.TestCase):
                 markers=self.markers,
                 clip_id="equal",
                 run_date="2026-05-31",
+                capture_time="2026-05-31T10:10:00Z",
+                capture_time_source="manual",
             )
         )
         self.assertEqual(equal.best_lap_delta, 0.0)
@@ -198,6 +204,43 @@ class ServiceCliTests(unittest.TestCase):
         slower = service.preview(baseline)
         self.assertIsNone(slower.best_lap_delta)
         self.assertIsNone(slower.optimal_lap_delta)
+
+    def test_preview_references_only_prior_capture_times(self):
+        service = TimerService(TimerDatabase([self.course], []))
+        june_first = SelectedRunInput(
+            course_id="course",
+            filename="June1.MP4",
+            source_fps=100.0,
+            markers=(
+                RawMarker("Start", 0),
+                RawMarker("S1", 100),
+                RawMarker("Finish", 320),
+            ),
+            clip_id="june-1",
+            capture_time="2026-06-01T10:00:00Z",
+            capture_time_source="manual",
+        )
+        june_second = SelectedRunInput(
+            course_id="course",
+            filename="June2.MP4",
+            source_fps=100.0,
+            markers=(
+                RawMarker("Start", 0),
+                RawMarker("S1", 90),
+                RawMarker("Finish", 280),
+            ),
+            clip_id="june-2",
+            capture_time="2026-06-02T10:00:00Z",
+            capture_time_source="manual",
+        )
+        service.commit_new_run(june_first, run_id="june_first")
+        service.commit_new_run(june_second, run_id="june_second")
+
+        earlier = service.preview(june_first)
+        later = service.preview(june_second)
+
+        self.assertIsNone(earlier.best_lap_references.lap_seconds)
+        self.assertEqual(later.best_lap_references.lap_seconds, 3.2)
 
     def test_timeline_batch_compares_against_prior_batch_runs(self):
         service = TimerService(TimerDatabase([self.course], []))
@@ -213,6 +256,8 @@ class ServiceCliTests(unittest.TestCase):
                 ),
                 clip_id="baseline",
                 run_date="2026-05-31",
+                capture_time="2026-05-31T10:00:00Z",
+                capture_time_source="manual",
             ),
             run_id="baseline",
             committed_at="2026-05-31T10:00:00Z",
@@ -233,6 +278,8 @@ class ServiceCliTests(unittest.TestCase):
                         ),
                         clip_id="first",
                         run_date="2026-05-31",
+                        capture_time="2026-05-31T10:10:00Z",
+                        capture_time_source="manual",
                     ),
                 ),
                 TimelineRunCandidate(
@@ -248,6 +295,8 @@ class ServiceCliTests(unittest.TestCase):
                         ),
                         clip_id="second",
                         run_date="2026-05-31",
+                        capture_time="2026-05-31T10:20:00Z",
+                        capture_time_source="manual",
                     ),
                 ),
                 TimelineRunCandidate(
@@ -263,6 +312,8 @@ class ServiceCliTests(unittest.TestCase):
                         ),
                         clip_id="third",
                         run_date="2026-05-31",
+                        capture_time="2026-05-31T10:30:00Z",
+                        capture_time_source="manual",
                     ),
                 ),
             ]
@@ -302,6 +353,8 @@ class ServiceCliTests(unittest.TestCase):
             ),
             clip_id="baseline",
             run_date="2026-05-31",
+            capture_time="2026-05-31T10:00:00Z",
+            capture_time_source="manual",
         )
         first = SelectedRunInput(
             course_id="course",
@@ -314,6 +367,8 @@ class ServiceCliTests(unittest.TestCase):
             ),
             clip_id="first",
             run_date="2026-05-31",
+            capture_time="2026-05-31T10:10:00Z",
+            capture_time_source="manual",
         )
         second = SelectedRunInput(
             course_id="course",
@@ -326,6 +381,8 @@ class ServiceCliTests(unittest.TestCase):
             ),
             clip_id="second",
             run_date="2026-05-31",
+            capture_time="2026-05-31T10:20:00Z",
+            capture_time_source="manual",
         )
         third = SelectedRunInput(
             course_id="course",
@@ -338,6 +395,8 @@ class ServiceCliTests(unittest.TestCase):
             ),
             clip_id="third",
             run_date="2026-05-31",
+            capture_time="2026-05-31T10:30:00Z",
+            capture_time_source="manual",
         )
         for run_id, selected in (
             ("baseline", baseline),
@@ -374,6 +433,8 @@ class ServiceCliTests(unittest.TestCase):
             ),
             clip_id="baseline",
             run_date="2026-05-31",
+            capture_time="2026-05-31T10:00:00Z",
+            capture_time_source="manual",
         )
         first = SelectedRunInput(
             course_id="course",
@@ -386,6 +447,8 @@ class ServiceCliTests(unittest.TestCase):
             ),
             clip_id="first",
             run_date="2026-05-31",
+            capture_time="2026-05-31T10:10:00Z",
+            capture_time_source="manual",
         )
         second = SelectedRunInput(
             course_id="course",
@@ -398,6 +461,8 @@ class ServiceCliTests(unittest.TestCase):
             ),
             clip_id="second",
             run_date="2026-05-31",
+            capture_time="2026-05-31T10:20:00Z",
+            capture_time_source="manual",
         )
         third = SelectedRunInput(
             course_id="course",
@@ -410,6 +475,8 @@ class ServiceCliTests(unittest.TestCase):
             ),
             clip_id="third",
             run_date="2026-05-31",
+            capture_time="2026-05-31T10:30:00Z",
+            capture_time_source="manual",
         )
         for run_id, selected in (
             ("baseline", baseline),
@@ -610,8 +677,9 @@ class ServiceCliTests(unittest.TestCase):
                 )
 
         self.assertEqual(exit_code, 0)
-        self.assertIn("S1: 0:01.000 (+0.000)", stdout.getvalue())
-        self.assertIn("LAP: 0:03.000 (+0.000)", stdout.getvalue())
+        self.assertIn("S1: 0:01.000", stdout.getvalue())
+        self.assertIn("LAP: 0:03.000", stdout.getvalue())
+        self.assertNotIn("(+0.000)", stdout.getvalue())
         self.assertIn("History: matched run_reference", stdout.getvalue())
 
     def test_cli_preview_json_from_csv(self):
@@ -661,7 +729,7 @@ class ServiceCliTests(unittest.TestCase):
         self.assertEqual(payload["course"]["id"], "course")
         self.assertEqual(payload["matching_run_id"], "run_reference")
         self.assertEqual(payload["rows"][-1]["label"], "LAP")
-        self.assertEqual(payload["rows"][-1]["delta_seconds"], 0.0)
+        self.assertIsNone(payload["rows"][-1]["delta_seconds"])
 
     def test_cli_reports_validation_errors_without_traceback(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1134,6 +1202,77 @@ class ServiceCliTests(unittest.TestCase):
             loaded.runs[0].fingerprint,
             clip_fingerprint("GX010123.MP4", loaded.runs[0].marker_frames),
         )
+
+    def test_cli_backfills_capture_times_from_media_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            media_root = tmp_path / "media"
+            media_root.mkdir()
+            media_path = media_root / "GX010123.MP4"
+            media_path.write_bytes(b"video")
+            db_path = tmp_path / "timer_db.yaml"
+            service = TimerService(TimerDatabase([self.course], []))
+            service.commit_new_run(
+                self.selected,
+                run_id="run_custom",
+                committed_at="2026-05-31T10:00:00Z",
+            )
+            service.save(db_path)
+
+            stdout = StringIO()
+            with patch("sys.stdout", stdout):
+                exit_code = main(
+                    [
+                        "--db",
+                        str(db_path),
+                        "backfill-capture-times",
+                        "--media-root",
+                        str(media_root),
+                    ]
+                )
+
+            loaded = TimerDatabase.load(db_path)
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Updated 1 run capture time", stdout.getvalue())
+        self.assertEqual(loaded.runs[0].capture_time_source, "filesystem_created")
+        self.assertEqual(loaded.runs[0].source_path, str(media_path))
+
+    def test_cli_backfills_dji_capture_time_without_media_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "timer_db.yaml"
+            selected = SelectedRunInput(
+                course_id="course",
+                filename="DJI_20260817075236_0012_D.MP4",
+                source_fps=100.0,
+                markers=self.markers,
+                clip_id="clip-dji",
+                capture_time="2026-08-23T15:20:59Z",
+                capture_time_source="filesystem_created",
+            )
+            service = TimerService(TimerDatabase([self.course], []))
+            service.commit_new_run(selected, run_id="run_dji")
+            service.save(db_path)
+
+            stdout = StringIO()
+            with (
+                patch("sys.stdout", stdout),
+                patch(
+                    "resolve_timer.cli.filename_capture_time",
+                    return_value="2026-08-17T14:52:36Z",
+                ),
+            ):
+                exit_code = main(
+                    ["--db", str(db_path), "backfill-capture-times"]
+                )
+
+            loaded = TimerDatabase.load(db_path)
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Updated 1 run capture time", stdout.getvalue())
+        self.assertEqual(loaded.runs[0].capture_time, "2026-08-17T14:52:36Z")
+        self.assertEqual(loaded.runs[0].capture_time_source, "filename_timestamp")
+        self.assertEqual(loaded.runs[0].date, "2026-08-17")
 
     def test_cli_add_course(self):
         with tempfile.TemporaryDirectory() as tmp:

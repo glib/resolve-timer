@@ -1,8 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
+from .capture_time import (
+    FILENAME_CAPTURE_TIME_SOURCE,
+    FILESYSTEM_CREATED_SOURCE,
+    filename_capture_time,
+    filesystem_created_time,
+)
 from .models import RawMarker
 
 
@@ -18,6 +25,9 @@ class SelectedMediaPoolRun:
     source_markers: tuple[RawMarker, ...]
     marker_source: str
     clip_id: str | None = None
+    capture_time: str | None = None
+    capture_time_source: str | None = None
+    source_path: str | None = None
 
 
 class ResolveAdapter:
@@ -56,6 +66,18 @@ class ResolveAdapter:
         if not filename:
             raise ResolveAdapterError("source clip filename property not found")
         clip_id = _optional_text(_call_optional(source_clip, "GetUniqueId"))
+        source_path = _source_path_from_properties(properties, filename)
+        capture_time = filename_capture_time(filename)
+        capture_time_source = (
+            FILENAME_CAPTURE_TIME_SOURCE if capture_time is not None else None
+        )
+        if capture_time is None and source_path:
+            try:
+                capture_time = filesystem_created_time(source_path)
+                capture_time_source = FILESYSTEM_CREATED_SOURCE
+            except OSError:
+                capture_time = None
+                capture_time_source = None
         return SelectedMediaPoolRun(
             source_clip=source_clip,
             filename=filename,
@@ -63,6 +85,9 @@ class ResolveAdapter:
             source_markers=self.markers_from_resolve_map(source_marker_map),
             marker_source="source_clip",
             clip_id=clip_id,
+            capture_time=capture_time,
+            capture_time_source=capture_time_source,
+            source_path=source_path,
         )
 
     def current_timeline_video_item(self) -> object:
@@ -123,6 +148,9 @@ class ResolveAdapter:
             markers=selected.source_markers,
             clip_id=selected.clip_id,
             run_date=run_date,
+            capture_time=selected.capture_time,
+            capture_time_source=selected.capture_time_source,
+            source_path=selected.source_path,
         )
 
     def matching_current_timeline_video_item(
@@ -251,6 +279,34 @@ def _first_property(properties: dict[str, Any], keys: tuple[str, ...]) -> str | 
         value = properties.get(key)
         if value not in (None, ""):
             return str(value)
+    return None
+
+
+def _source_path_from_properties(properties: dict[str, Any], filename: str) -> str | None:
+    direct = _first_property(
+        properties,
+        (
+            "File Path",
+            "FilePath",
+            "Full Path",
+            "FullPath",
+            "Path",
+            "Source Path",
+        ),
+    )
+    if direct:
+        return direct
+    directory = _first_property(
+        properties,
+        (
+            "Directory",
+            "File Directory",
+            "Folder",
+            "Source Directory",
+        ),
+    )
+    if directory:
+        return str(Path(directory) / filename)
     return None
 
 

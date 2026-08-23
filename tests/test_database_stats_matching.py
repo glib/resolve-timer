@@ -58,6 +58,41 @@ class DatabaseStatsMatchingTests(unittest.TestCase):
         self.assertEqual(loaded.runs[0].marker_frames, self.frames_a)
         self.assertEqual(loaded.runs[0].fingerprint, clip_fingerprint("GX010123.MP4", self.frames_a))
 
+    def test_database_loads_v1_and_saves_v2_capture_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "timer_db.yaml"
+            path.write_text(
+                "\n".join(
+                    [
+                        "schema_version: 1",
+                        "courses:",
+                        "- id: course",
+                        "  name: Course",
+                        "  sector_count: 2",
+                        "runs:",
+                        "- id: run_a",
+                        "  course_id: course",
+                        "  date: '2026-05-31'",
+                        "  filename: GX010123.MP4",
+                        "  source_fps: 100.0",
+                        "  marker_frames:",
+                        "    Finish: 300",
+                        "    S1: 100",
+                        "    Start: 0",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            database = TimerDatabase.load(path)
+            database.save(path)
+            saved = path.read_text(encoding="utf-8")
+
+        self.assertEqual(database.runs[0].capture_time, "2026-05-31T23:59:59Z")
+        self.assertEqual(database.runs[0].capture_time_source, "date_fallback")
+        self.assertIn("schema_version: 2", saved)
+        self.assertIn("capture_time: '2026-05-31T23:59:59Z'", saved)
+
     def test_database_save_replaces_target_without_leaving_temp_file(self):
         db = TimerDatabase([self.course], [run_record("run_a", self.frames_a)])
 

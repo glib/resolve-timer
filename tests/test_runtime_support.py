@@ -26,15 +26,29 @@ class RuntimeSupportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "preferences.json"
 
-            save_preferences(path, UserPreferences("course-b", "optimal"))
+            save_preferences(
+                path,
+                UserPreferences("course-b", "optimal", str(Path(tmp) / "summaries")),
+            )
             loaded = load_preferences(path)
 
-        self.assertEqual(loaded, UserPreferences("course-b", "optimal"))
+        self.assertEqual(
+            loaded,
+            UserPreferences("course-b", "optimal", str(Path(tmp) / "summaries")),
+        )
 
     def test_invalid_preferences_are_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "preferences.json"
             path.write_text('{"comparison_mode": "invalid"}', encoding="utf-8")
+
+            with self.assertRaises(PreferencesError):
+                load_preferences(path)
+
+    def test_invalid_summary_output_directory_preference_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "preferences.json"
+            path.write_text('{"summary_output_directory": 42}', encoding="utf-8")
 
             with self.assertRaises(PreferencesError):
                 load_preferences(path)

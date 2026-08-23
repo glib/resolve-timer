@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 
+from .capture_time import effective_capture_time
 from .models import MarkerSnapshot, RunRecord
 
 
@@ -45,4 +46,13 @@ def find_matching_run(
 
 
 def _earliest(runs: list[RunRecord]) -> RunRecord:
-    return sorted(runs, key=lambda run: (run.committed_at or run.date or "", run.id))[0]
+    return sorted(
+        runs,
+        key=lambda run: (
+            effective_capture_time(run.capture_time, run.date)
+            or run.committed_at
+            or run.date
+            or "",
+            run.id,
+        ),
+    )[0]

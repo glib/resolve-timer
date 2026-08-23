@@ -1,9 +1,12 @@
 import sys
+import tempfile
 import unittest
+from datetime import timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from resolve_timer.capture_time import filename_capture_time
 from resolve_timer.resolve_adapter import ResolveAdapter, ResolveAdapterError
 
 
@@ -44,15 +47,16 @@ class FakeMediaPool:
 
 
 class FakeSourceClip:
-    def __init__(self, clip_id="clip-1", name="GX010123.MP4"):
+    def __init__(self, clip_id="clip-1", name="GX010123.MP4", properties=None):
         self.clip_id = clip_id
         self.name = name
+        self.properties = properties
 
     def GetMarkers(self):
         return {0: {"name": "Start"}, 100: {"name": "S1"}, 300: {"name": "Finish"}}
 
     def GetClipProperty(self):
-        return {"File Name": self.name, "FPS": "100"}
+        return self.properties or {"File Name": self.name, "FPS": "100"}
 
     def GetUniqueId(self):
         return self.clip_id
@@ -94,6 +98,16 @@ class FakeTimelineItem:
 
 
 class ResolveAdapterTests(unittest.TestCase):
+    def test_dji_filename_capture_time_uses_embedded_local_timestamp(self):
+        capture_time = filename_capture_time(
+            "DJI_20260817075236_0012_D.MP4",
+            local_timezone=timezone(timedelta(hours=-7)),
+        )
+
+        self.assertEqual(capture_time, "2026-08-17T14:52:36Z")
+        self.assertIsNone(filename_capture_time("GX010018.MP4"))
+        self.assertIsNone(filename_capture_time("DJI_20260230075236_0012_D.MP4"))
+
     def test_selected_media_pool_run_reads_source_clip_markers(self):
         source_clip = FakeSourceClip()
         resolve = FakeResolve(FakeProjectManager(FakeProject([source_clip])))
@@ -122,6 +136,45 @@ class ResolveAdapterTests(unittest.TestCase):
         self.assertIs(selected.source_clip, source_clip)
         self.assertEqual(selected.filename, "Explicit.MP4")
         self.assertEqual(selected.clip_id, "clip-explicit")
+
+    def test_media_pool_run_reads_filesystem_capture_time_from_source_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            media_path = Path(tmp) / "Capture.MP4"
+            media_path.write_bytes(b"video")
+            source_clip = FakeSourceClip(
+                "clip-capture",
+                "Capture.MP4",
+                {
+                    "File Name": "Capture.MP4",
+                    "FPS": "100",
+                    "File Path": str(media_path),
+                },
+            )
+            adapter = ResolveAdapter(FakeResolve(FakeProjectManager(FakeProject([]))))
+
+            selected = adapter.media_pool_run(source_clip)
+
+        self.assertEqual(selected.source_path, str(media_path))
+        self.assertEqual(selected.capture_time_source, "filesystem_created")
+        self.assertRegex(selected.capture_time, r"^\d{4}-\d{2}-\d{2}T")
+
+    def test_media_pool_run_prefers_dji_filename_time_over_filesystem_time(self):
+        filename = "DJI_20260817075236_0012_D.MP4"
+        source_clip = FakeSourceClip(
+            "clip-capture",
+            filename,
+            {
+                "File Name": filename,
+                "FPS": "100",
+                "File Path": str(Path("missing") / filename),
+            },
+        )
+        adapter = ResolveAdapter(FakeResolve(FakeProjectManager(FakeProject([]))))
+
+        selected = adapter.media_pool_run(source_clip)
+
+        self.assertEqual(selected.capture_time_source, "filename_timestamp")
+        self.assertEqual(selected.capture_time[:10], "2026-08-17")
 
     def test_selected_run_input_converts_adapter_selection_for_service(self):
         source_clip = FakeSourceClip()

@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 courses:
 - id: lower_whistler_a_line
   name: Lower Whistler A-Line
@@ -17,4 +17,6 @@ runs:
     S2: 360
     S3: 515
     Start: 100
+  capture_time: '2026-05-31T23:59:59Z'
+  capture_time_source: date_fallback
   fingerprint: GX010123.MP4:129979c14aa405e2

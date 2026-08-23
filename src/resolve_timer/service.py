@@ -4,6 +4,14 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from .capture_time import (
+    DATE_FALLBACK_SOURCE,
+    MANUAL_SOURCE,
+    capture_date,
+    capture_time_from_date,
+    effective_capture_time,
+    normalize_capture_time,
+)
 from .database import TimerDatabase
 from .markers import MarkerValidationError, parse_marker_snapshot
 from .matching import clip_fingerprint, find_matching_run
@@ -22,6 +30,9 @@ class SelectedRunInput:
     markers: tuple[RawMarker, ...]
     clip_id: str | None = None
     run_date: str | None = None
+    capture_time: str | None = None
+    capture_time_source: str | None = None
+    source_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -206,7 +217,6 @@ class TimerService:
         snapshot = parse_marker_snapshot(list(selected.markers), course)
         timing = compute_timing(snapshot, course, selected.source_fps)
         stats_source = self.database.runs if stats_runs is None else stats_runs
-        stats = compute_course_stats(course, stats_source)
         matching = find_matching_run(
             self.database.runs,
             course_id=course.id,
@@ -214,15 +224,17 @@ class TimerService:
             marker_frames=snapshot,
             clip_id=selected.clip_id,
         )
-        baseline_stats = compute_course_stats(
+        as_of_capture_time = _selected_effective_capture_time(selected, matching)
+        stats = compute_course_stats(
             course,
             stats_source,
             exclude_run_id=None if matching is None else matching.id,
+            as_of_capture_time=as_of_capture_time,
         )
         baseline_best = (
             None
-            if baseline_stats.best_lap is None
-            else baseline_stats.best_lap.timing.lap_seconds
+            if stats.best_lap is None
+            else stats.best_lap.timing.lap_seconds
         )
         return RunPreview(
             course=course,
@@ -235,7 +247,7 @@ class TimerService:
             best_lap_delta=_summary_delta(timing.lap_seconds, baseline_best),
             optimal_lap_delta=_summary_delta(
                 timing.lap_seconds,
-                baseline_stats.optimal_seconds,
+                stats.optimal_seconds,
             ),
         )
 
@@ -286,7 +298,7 @@ class TimerService:
         self,
         candidates: list[TimelineRunCandidate],
     ) -> TimelineBatchResult:
-        baseline_runs = self._timeline_initial_baseline(candidates)
+        baseline_runs = self._timeline_reference_baseline(candidates)
         items: list[TimelineBatchItem] = []
         for candidate in candidates:
             label = candidate.label
@@ -309,7 +321,6 @@ class TimerService:
                 if matching is None:
                     run = self._new_run_from_preview(selected, preview)
                     self.database.upsert_run(run)
-                    _upsert_run(baseline_runs, run)
                     items.append(
                         TimelineBatchItem(
                             label=label,
@@ -322,7 +333,6 @@ class TimerService:
                 elif preview.has_marker_changes:
                     run = self._updated_run_from_preview(selected, preview, matching)
                     self.database.upsert_run(run)
-                    _upsert_run(baseline_runs, run)
                     items.append(
                         TimelineBatchItem(
                             label=label,
@@ -333,7 +343,6 @@ class TimerService:
                         )
                     )
                 else:
-                    _upsert_run(baseline_runs, matching)
                     items.append(
                         TimelineBatchItem(
                             label=label,
@@ -367,7 +376,7 @@ class TimerService:
         *,
         comparison_mode: str = "best_lap",
     ) -> TimelineOverlayPayloadResult:
-        baseline_runs = self._timeline_initial_baseline(candidates)
+        baseline_runs = self._timeline_reference_baseline(candidates)
         items: list[TimelineOverlayPayloadItem] = []
         for candidate in candidates:
             label = candidate.label
@@ -391,10 +400,6 @@ class TimerService:
                     comparison_mode=comparison_mode,
                 )
                 items.append(TimelineOverlayPayloadItem(label=label, payload=payload))
-                _upsert_run(
-                    baseline_runs,
-                    self._timeline_baseline_run(selected, preview, baseline_runs),
-                )
             except (MarkerValidationError, ValueError) as exc:
                 items.append(
                     TimelineOverlayPayloadItem(
@@ -413,16 +418,21 @@ class TimerService:
         committed_at: str | None = None,
     ) -> RunRecord:
         created_at = committed_at or utc_timestamp()
+        run_date = _selected_run_date(selected)
+        capture_time = _selected_effective_capture_time(selected)
         return RunRecord(
             id=run_id or _next_run_id(
                 self.database.runs,
-                selected.run_date or date.today().isoformat(),
+                run_date,
             ),
             course_id=preview.course.id,
-            date=selected.run_date or date.today().isoformat(),
+            date=run_date,
             filename=selected.filename,
             source_fps=selected.source_fps,
             marker_frames=dict(preview.snapshot.frames),
+            capture_time=capture_time,
+            capture_time_source=_selected_capture_time_source(selected, capture_time),
+            source_path=selected.source_path,
             clip_id=selected.clip_id,
             fingerprint=clip_fingerprint(selected.filename, preview.snapshot),
             committed=True,
@@ -438,13 +448,23 @@ class TimerService:
         *,
         committed_at: str | None = None,
     ) -> RunRecord:
+        capture_time = _selected_effective_capture_time(selected, existing)
+        capture_time_source = existing.capture_time_source
+        if selected.capture_time or selected.run_date:
+            capture_time_source = (
+                _selected_capture_time_source(selected, capture_time)
+                or existing.capture_time_source
+            )
         return RunRecord(
             id=existing.id,
             course_id=existing.course_id,
-            date=selected.run_date or existing.date,
+            date=_selected_run_date(selected, existing),
             filename=selected.filename,
             source_fps=selected.source_fps,
             marker_frames=dict(preview.snapshot.frames),
+            capture_time=capture_time,
+            capture_time_source=capture_time_source,
+            source_path=selected.source_path or existing.source_path,
             clip_id=selected.clip_id or existing.clip_id,
             fingerprint=clip_fingerprint(selected.filename, preview.snapshot),
             committed=True,
@@ -453,7 +473,7 @@ class TimerService:
             metadata=dict(existing.metadata),
         )
 
-    def _timeline_initial_baseline(
+    def _timeline_reference_baseline(
         self,
         candidates: list[TimelineRunCandidate],
     ) -> list[RunRecord]:
@@ -464,7 +484,16 @@ class TimerService:
             for run in [self._matching_run_for_selected(candidate.selected)]
             if run is not None
         }
-        return [run for run in self.database.runs if run.id not in matched_run_ids]
+        baseline = [run for run in self.database.runs if run.id not in matched_run_ids]
+        for candidate in candidates:
+            if candidate.selected is None:
+                continue
+            try:
+                run = self._timeline_reference_run(candidate.selected, baseline)
+            except (MarkerValidationError, ValueError, KeyError):
+                continue
+            _upsert_run(baseline, run)
+        return baseline
 
     def _matching_run_for_selected(self, selected: SelectedRunInput) -> RunRecord | None:
         try:
@@ -480,25 +509,45 @@ class TimerService:
             clip_id=selected.clip_id,
         )
 
-    def _timeline_baseline_run(
+    def _timeline_reference_run(
         self,
         selected: SelectedRunInput,
-        preview: RunPreview,
         baseline_runs: list[RunRecord],
     ) -> RunRecord:
-        matching = preview.matching_run
-        if matching is None:
-            return self._new_run_from_preview(
-                selected,
-                preview,
-                run_id=_next_run_id(
-                    baseline_runs,
-                    selected.run_date or date.today().isoformat(),
-                ),
-            )
-        if preview.has_marker_changes:
-            return self._updated_run_from_preview(selected, preview, matching)
-        return matching
+        course = self.database.course_by_id(selected.course_id)
+        snapshot = parse_marker_snapshot(list(selected.markers), course)
+        matching = self._matching_run_for_selected(selected)
+        run_id = (
+            matching.id
+            if matching is not None
+            else _next_run_id(baseline_runs, _selected_run_date(selected))
+        )
+        ignored = False if matching is None else matching.ignored
+        committed_at = utc_timestamp() if matching is None else matching.committed_at
+        capture_time = _selected_effective_capture_time(selected, matching)
+        run_date = _selected_run_date(selected, matching)
+        if matching is not None and not selected.capture_time and not selected.run_date:
+            capture_time_source = matching.capture_time_source
+            source_path = matching.source_path
+        else:
+            capture_time_source = _selected_capture_time_source(selected, capture_time)
+            source_path = selected.source_path
+        return RunRecord(
+            id=run_id,
+            course_id=course.id,
+            date=run_date,
+            filename=selected.filename,
+            source_fps=selected.source_fps,
+            marker_frames=dict(snapshot.frames),
+            capture_time=capture_time,
+            capture_time_source=capture_time_source,
+            source_path=source_path,
+            clip_id=selected.clip_id,
+            fingerprint=clip_fingerprint(selected.filename, snapshot),
+            committed=True,
+            ignored=ignored,
+            committed_at=committed_at,
+        )
 
     def set_ignored(self, run_id: str, ignored: bool) -> RunRecord:
         for existing in self.database.runs:
@@ -590,6 +639,44 @@ def _summary_delta(duration_seconds: float, reference_seconds: float | None) -> 
     if reference_seconds is None or duration_seconds > reference_seconds:
         return None
     return duration_seconds - reference_seconds
+
+
+def _selected_effective_capture_time(
+    selected: SelectedRunInput,
+    existing: RunRecord | None = None,
+) -> str | None:
+    if not selected.capture_time and not selected.run_date and existing is not None:
+        return effective_capture_time(existing.capture_time, existing.date)
+    return normalize_capture_time(selected.capture_time) or capture_time_from_date(
+        _selected_run_date(selected, existing)
+    )
+
+
+def _selected_run_date(
+    selected: SelectedRunInput,
+    existing: RunRecord | None = None,
+) -> str:
+    if selected.run_date:
+        return selected.run_date
+    selected_capture_date = capture_date(selected.capture_time)
+    if selected_capture_date:
+        return selected_capture_date
+    if existing is not None:
+        return existing.date
+    return date.today().isoformat()
+
+
+def _selected_capture_time_source(
+    selected: SelectedRunInput,
+    capture_time: str | None,
+) -> str | None:
+    if capture_time is None:
+        return None
+    if selected.capture_time_source:
+        return selected.capture_time_source
+    if selected.capture_time:
+        return MANUAL_SOURCE
+    return DATE_FALLBACK_SOURCE
 
 
 def _upsert_run(runs: list[RunRecord], run: RunRecord) -> None:

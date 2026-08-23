@@ -73,6 +73,9 @@ class FakeControllerAdapter:
                     ),
                 ),
                 clip_id=run.get("clip_id", f"timeline-clip-{index}"),
+                capture_time=run.get("capture_time"),
+                capture_time_source=run.get("capture_time_source"),
+                source_path=run.get("source_path"),
             )
             for index, (item, run) in enumerate(zip(self.timeline_items, timeline_runs))
         }
@@ -84,6 +87,9 @@ class FakeControllerAdapter:
             source_fps=100.0,
             markers=self.markers,
             clip_id=self.clip_id,
+            capture_time=None,
+            capture_time_source=None,
+            source_path=None,
         )
 
     def matching_current_timeline_video_item(self, selected):
@@ -99,13 +105,25 @@ class FakeControllerAdapter:
         return tuple(self.timeline_items)
 
     @staticmethod
-    def _run(*, filename, source_fps, markers, clip_id):
+    def _run(
+        *,
+        filename,
+        source_fps,
+        markers,
+        clip_id,
+        capture_time=None,
+        capture_time_source=None,
+        source_path=None,
+    ):
         return SimpleNamespace(
             filename=filename,
             source_fps=source_fps,
             source_markers=markers,
             marker_source="source_clip",
             clip_id=clip_id,
+            capture_time=capture_time,
+            capture_time_source=capture_time_source,
+            source_path=source_path,
         )
 
 
@@ -231,6 +249,31 @@ class UiTests(unittest.TestCase):
 
         self.assertEqual(restored.selected_course_id, "course-b")
         self.assertEqual(restored.comparison_mode, "optimal")
+
+    def test_controller_restores_summary_output_directory_preference(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "timer_db.yaml"
+            output_directory = root / "summaries"
+            output_directory.mkdir()
+            preferences_path = root / "preferences.json"
+            TimerDatabase([Course("course", "Course", 2)], []).save(db_path)
+            first = ResolveTimerController(
+                db_path,
+                FakeControllerAdapter(),
+                preferences_path=preferences_path,
+            )
+            first.initialize()
+            state = first.set_summary_output_directory(output_directory)
+
+            restored = ResolveTimerController(
+                db_path,
+                FakeControllerAdapter(),
+                preferences_path=preferences_path,
+            ).initialize()
+
+        self.assertIsNone(state.error)
+        self.assertEqual(restored.summary_output_directory, str(output_directory))
 
     def test_controller_recovers_from_invalid_preferences(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -400,7 +443,7 @@ class UiTests(unittest.TestCase):
         self.assertEqual(ignored.best_lap, "--:--.---")
         self.assertEqual(restored.status, f"Unignored {run_id}")
         self.assertFalse(restored_run.ignored)
-        self.assertEqual(restored.best_lap, "0:03.000")
+        self.assertEqual(restored.best_lap, "--:--.---")
 
     def test_controller_deletes_matching_run(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -615,11 +658,11 @@ class UiTests(unittest.TestCase):
                 RawMarker("Finish", 280),
             )
             service = TimerService(TimerDatabase([course], []))
-            for run_id, filename, markers, clip_id in (
-                ("baseline", "Baseline.MP4", baseline_markers, "baseline"),
-                ("first", "First.MP4", first_markers, "first"),
-                ("second", "Second.MP4", second_markers, "second"),
-                ("third", "Third.MP4", third_markers, "third"),
+            for run_id, filename, markers, clip_id, capture_time in (
+                ("baseline", "Baseline.MP4", baseline_markers, "baseline", "2026-05-31T10:00:00Z"),
+                ("first", "First.MP4", first_markers, "first", "2026-05-31T10:10:00Z"),
+                ("second", "Second.MP4", second_markers, "second", "2026-05-31T10:20:00Z"),
+                ("third", "Third.MP4", third_markers, "third", "2026-05-31T10:30:00Z"),
             ):
                 service.commit_new_run(
                     SelectedRunInput(
@@ -628,6 +671,8 @@ class UiTests(unittest.TestCase):
                         source_fps=100.0,
                         markers=markers,
                         clip_id=clip_id,
+                        capture_time=capture_time,
+                        capture_time_source="manual",
                     ),
                     run_id=run_id,
                 )
@@ -639,18 +684,24 @@ class UiTests(unittest.TestCase):
                         "markers": third_markers,
                         "clip_id": "third",
                         "start": 30,
+                        "capture_time": "2026-05-31T10:30:00Z",
+                        "capture_time_source": "manual",
                     },
                     {
                         "filename": "First.MP4",
                         "markers": first_markers,
                         "clip_id": "first",
                         "start": 10,
+                        "capture_time": "2026-05-31T10:10:00Z",
+                        "capture_time_source": "manual",
                     },
                     {
                         "filename": "Second.MP4",
                         "markers": second_markers,
                         "clip_id": "second",
                         "start": 20,
+                        "capture_time": "2026-05-31T10:20:00Z",
+                        "capture_time_source": "manual",
                     },
                 ]
             )
@@ -852,6 +903,43 @@ class UiTests(unittest.TestCase):
         self.assertIsNone(state.error)
         self.assertTrue(output_exists)
 
+    def test_summary_export_uses_configured_output_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output_directory = root / "summaries"
+            output_directory.mkdir()
+            db_path = root / "timer_db.yaml"
+            TimerDatabase([Course("course", "Course", 2)], []).save(db_path)
+            controller = ResolveTimerController(db_path, TimelineOnlyAdapter())
+            controller.initialize()
+            controller.set_summary_output_directory(output_directory)
+
+            state = controller.export_course_summary_card()
+            exported = list(output_directory.glob("resolve_timer_summary_course_*.png"))
+
+        self.assertIsNone(state.error)
+        self.assertEqual(len(exported), 1)
+
+    def test_controller_opens_summary_output_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "timer_db.yaml"
+            output_directory = root / "summaries"
+            TimerDatabase([Course("course", "Course", 2)], []).save(db_path)
+            opener = Mock()
+            controller = ResolveTimerController(
+                db_path,
+                FakeControllerAdapter(),
+                directory_opener=opener,
+            )
+            controller.initialize()
+            controller.summary_output_directory = output_directory
+
+            state = controller.open_summary_output_directory()
+
+        self.assertIsNone(state.error)
+        opener.assert_called_once_with(output_directory)
+
     def test_overlay_all_handler_calls_controller(self):
         window = ResolveTimerWindow.__new__(ResolveTimerWindow)
         state = SimpleNamespace(status="updated")
@@ -886,6 +974,34 @@ class UiTests(unittest.TestCase):
         window._on_summary_export({})
 
         window.controller.export_course_summary_card.assert_called_once_with()
+        window.render.assert_called_once_with(state)
+
+    def test_summary_set_folder_handler_uses_picker_and_controller(self):
+        window = ResolveTimerWindow.__new__(ResolveTimerWindow)
+        state = SimpleNamespace(summary_output_directory="C:/old")
+        updated = SimpleNamespace(status="updated")
+        window._state = state
+        window.directory_picker = Mock(return_value="C:/new")
+        window.controller = Mock()
+        window.controller.set_summary_output_directory.return_value = updated
+        window.render = Mock()
+
+        window._on_summary_set_folder({})
+
+        window.directory_picker.assert_called_once_with("C:/old")
+        window.controller.set_summary_output_directory.assert_called_once_with("C:/new")
+        window.render.assert_called_once_with(updated)
+
+    def test_summary_open_folder_handler_calls_controller(self):
+        window = ResolveTimerWindow.__new__(ResolveTimerWindow)
+        state = SimpleNamespace(status="opened")
+        window.controller = Mock()
+        window.controller.open_summary_output_directory.return_value = state
+        window.render = Mock()
+
+        window._on_summary_open_folder({})
+
+        window.controller.open_summary_output_directory.assert_called_once_with()
         window.render.assert_called_once_with(state)
 
 

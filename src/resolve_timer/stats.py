@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .capture_time import effective_capture_time, normalize_capture_time
 from .markers import MarkerValidationError, parse_marker_snapshot
 from .models import Course, RawMarker, RunRecord, TimingResult
 from .timing import compute_timing
@@ -41,12 +42,17 @@ def compute_course_stats(
     runs: list[RunRecord],
     *,
     exclude_run_id: str | None = None,
+    as_of_capture_time: str | None = None,
 ) -> CourseStats:
+    as_of = normalize_capture_time(as_of_capture_time)
     eligible: list[RunTiming] = []
     for run in runs:
         if exclude_run_id is not None and run.id == exclude_run_id:
             continue
         if run.course_id != course.id or not run.committed or run.ignored:
+            continue
+        run_capture_time = effective_capture_time(run.capture_time, run.date)
+        if as_of is not None and run_capture_time is not None and run_capture_time >= as_of:
             continue
         try:
             markers = [RawMarker(name, frame) for name, frame in run.marker_frames.items()]
@@ -56,7 +62,7 @@ def compute_course_stats(
             continue
         eligible.append(RunTiming(run=run, timing=timing))
 
-    eligible.sort(key=lambda item: (item.run.committed_at or item.run.date or "", item.run.id))
+    eligible.sort(key=lambda item: (_run_order_time(item.run), item.run.id))
     best = min(eligible, key=lambda item: item.timing.lap_seconds, default=None)
     fastest: list[FastestSector] = []
     for sector_index in range(course.sector_count):
@@ -69,7 +75,7 @@ def compute_course_stats(
             sector_candidates,
             key=lambda pair: (
                 pair[1].duration_seconds,
-                pair[0].run.committed_at or pair[0].run.date or "",
+                _run_order_time(pair[0].run),
                 pair[0].run.id,
             ),
         )
@@ -91,3 +97,7 @@ def compute_course_stats(
         optimal_seconds=optimal_seconds,
         optimal_frames=optimal_frames,
     )
+
+
+def _run_order_time(run: RunRecord) -> str:
+    return effective_capture_time(run.capture_time, run.date) or run.committed_at or run.date or ""

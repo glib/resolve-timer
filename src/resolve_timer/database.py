@@ -8,6 +8,9 @@ import yaml
 from .models import SCHEMA_VERSION, Course, RunRecord
 
 
+SUPPORTED_SCHEMA_VERSIONS = {1, SCHEMA_VERSION}
+
+
 class DatabaseError(ValueError):
     pass
 
@@ -32,8 +35,9 @@ class TimerDatabase:
         if not isinstance(raw, dict):
             raise DatabaseError(f"database {db_path} must contain a YAML mapping")
         version = raw.get("schema_version")
-        if version != SCHEMA_VERSION:
-            raise DatabaseError(f"unsupported schema_version {version!r}; expected {SCHEMA_VERSION}")
+        if version not in SUPPORTED_SCHEMA_VERSIONS:
+            supported = ", ".join(str(item) for item in sorted(SUPPORTED_SCHEMA_VERSIONS))
+            raise DatabaseError(f"unsupported schema_version {version!r}; expected one of {supported}")
         try:
             return cls(
                 courses=[Course.from_dict(item) for item in raw.get("courses", [])],

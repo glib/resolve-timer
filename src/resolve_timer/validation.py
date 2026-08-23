@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 
+from .capture_time import CAPTURE_TIME_SOURCES, normalize_capture_time
 from .database import TimerDatabase
 from .markers import MarkerValidationError, parse_marker_snapshot
 from .models import RawMarker
@@ -38,6 +39,15 @@ def validate_database(database: TimerDatabase) -> list[str]:
         if run.source_fps <= 0:
             errors.append(f"run {run.id} source_fps must be greater than 0")
             continue
+        if run.capture_time_source and run.capture_time_source not in CAPTURE_TIME_SOURCES:
+            errors.append(
+                f"run {run.id} capture_time_source must be one of "
+                f"{', '.join(sorted(CAPTURE_TIME_SOURCES))}"
+            )
+        try:
+            normalize_capture_time(run.capture_time)
+        except ValueError as exc:
+            errors.append(f"run {run.id} capture_time is invalid: {exc}")
         try:
             markers = [RawMarker(name, frame) for name, frame in run.marker_frames.items()]
             snapshot = parse_marker_snapshot(markers, course)

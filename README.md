@@ -12,7 +12,7 @@ Resolve with the standard Python test runner.
 - Reads timing markers from one selected Media Pool clip.
 - Previews sector and lap times for a selected course.
 - Commits, updates, ignores, unignores, and deletes runs in a YAML database.
-- Compares the current run against best lap, optimal lap, or a matching run.
+- Compares the current run against prior-captured runs for best lap or optimal lap.
 - Creates or updates a Fusion/Text+ overlay on the timeline clip under the
   playhead, or across all valid video clips in the current timeline.
 
@@ -67,7 +67,7 @@ the lap row reveals at `Finish`.
 ## Project Files
 
 - `timer_db.yaml`: your local course and run database.
-- `resolve_timer_preferences.json`: last selected course and comparison mode.
+- `resolve_timer_preferences.json`: last selected course, comparison mode, and summary output folder.
 - `resolve_timer_startup.json`: latest Resolve startup diagnostics.
 - `resolve_timer.log`: unexpected startup or controller tracebacks.
 - `examples/timer_db.yaml`: starter database template.
@@ -82,6 +82,8 @@ Install the package in a Python environment, then run:
 resolve-timer --db examples/timer_db.yaml courses
 resolve-timer --db examples/timer_db.yaml validate-db
 resolve-timer --db examples/timer_db.yaml normalize-db
+resolve-timer --db timer_db.yaml backfill-capture-times --dry-run
+resolve-timer --db timer_db.yaml backfill-capture-times --media-root D:\Media\Runs --dry-run
 resolve-timer --db examples/timer_db.yaml preview --course lower_whistler_a_line --markers examples/markers.csv --filename GX010123.MP4 --fps 59.94
 resolve-timer --db examples/timer_db.yaml commit --course lower_whistler_a_line --markers examples/markers.csv --filename GX010123.MP4 --fps 59.94
 resolve-timer --db examples/timer_db.yaml runs --course lower_whistler_a_line
@@ -90,6 +92,12 @@ resolve-timer --db examples/timer_db.yaml overlay-text --course lower_whistler_a
 ```
 
 Marker CSV files need `name,frame` columns.
+
+Runs store `capture_time` so comparisons are chronological by source clip capture
+time. DJI filenames containing `YYYYMMDDHHMMSS` are the primary source because
+their timestamp survives copying. Other filenames fall back to filesystem
+creation time when the source file is available. Use `backfill-capture-times`
+to correct existing DJI records; add `--media-root` to also resolve other names.
 
 ## Development
 

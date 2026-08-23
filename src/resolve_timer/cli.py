@@ -6,6 +6,13 @@ import json
 import sys
 from pathlib import Path
 
+from .capture_time import (
+    FILENAME_CAPTURE_TIME_SOURCE,
+    FILESYSTEM_CREATED_SOURCE,
+    capture_date,
+    filename_capture_time,
+    filesystem_created_time,
+)
 from .database import DatabaseError, TimerDatabase
 from .markers import MarkerValidationError
 from .models import RawMarker
@@ -47,6 +54,14 @@ def main(argv: list[str] | None = None) -> int:
 
     normalize = subparsers.add_parser("normalize-db", help="Fill derived fields in the database")
     normalize.set_defaults(func=_cmd_normalize_db)
+
+    backfill = subparsers.add_parser(
+        "backfill-capture-times",
+        help="Fill run capture times from filenames or source media files",
+    )
+    backfill.add_argument("--media-root", action="append", default=[])
+    backfill.add_argument("--dry-run", action="store_true")
+    backfill.set_defaults(func=_cmd_backfill_capture_times)
 
     list_runs = subparsers.add_parser("runs", help="List committed run records")
     list_runs.add_argument("--course", help="Only show runs for this course ID")
@@ -115,6 +130,8 @@ def _add_selected_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--fps", required=True, type=float)
     parser.add_argument("--clip-id")
     parser.add_argument("--date")
+    parser.add_argument("--capture-time")
+    parser.add_argument("--source-path")
 
 
 def _cmd_courses(args: argparse.Namespace) -> int:
@@ -170,6 +187,60 @@ def _cmd_normalize_db(args: argparse.Namespace) -> int:
     count = service.normalize_fingerprints()
     service.save(args.db)
     print(f"Updated {count} run fingerprints")
+    return 0
+
+
+def _cmd_backfill_capture_times(args: argparse.Namespace) -> int:
+    database = TimerDatabase.load(args.db)
+    media_index = _media_files_by_name([Path(root) for root in args.media_root])
+    updated = 0
+    unresolved = 0
+    duplicates = 0
+    for run in database.runs:
+        capture_time = filename_capture_time(run.filename)
+        capture_time_source = (
+            FILENAME_CAPTURE_TIME_SOURCE if capture_time is not None else None
+        )
+        source_path = None
+        if capture_time is None:
+            if run.capture_time and run.capture_time_source == FILESYSTEM_CREATED_SOURCE:
+                continue
+            matches = _matching_media_paths(run.filename, run.source_path, media_index)
+            if not matches:
+                unresolved += 1
+                print(f"{run.id}: no filename timestamp or media file for {run.filename}")
+                continue
+            if len(matches) > 1:
+                duplicates += 1
+                print(f"{run.id}: duplicate media files found for {run.filename}")
+                continue
+            source_path = matches[0]
+            capture_time = filesystem_created_time(source_path)
+            capture_time_source = FILESYSTEM_CREATED_SOURCE
+        if (
+            run.capture_time == capture_time
+            and run.capture_time_source == capture_time_source
+        ):
+            continue
+        updated += 1
+        print(
+            f"{run.id}: {run.capture_time or 'missing'} -> {capture_time} "
+            f"({capture_time_source})"
+        )
+        if args.dry_run:
+            continue
+        run.capture_time = capture_time
+        run.capture_time_source = capture_time_source
+        if source_path is not None:
+            run.source_path = str(source_path)
+        run.date = capture_date(capture_time) or run.date
+    if updated and not args.dry_run:
+        database.save(args.db)
+    action = "Would update" if args.dry_run else "Updated"
+    print(
+        f"{action} {updated} run capture time(s); "
+        f"unresolved {unresolved}; duplicates {duplicates}"
+    )
     return 0
 
 
@@ -334,6 +405,20 @@ def _cmd_delete_run(args: argparse.Namespace) -> int:
 
 
 def _selected_from_args(args: argparse.Namespace) -> SelectedRunInput:
+    capture_time = args.capture_time
+    capture_time_source = None
+    if capture_time:
+        capture_time_source = "manual"
+    else:
+        capture_time = filename_capture_time(args.filename)
+        if capture_time:
+            capture_time_source = FILENAME_CAPTURE_TIME_SOURCE
+    if capture_time is None and args.source_path:
+        try:
+            capture_time = filesystem_created_time(args.source_path)
+        except OSError as exc:
+            raise ValueError(f"could not read source file creation time: {exc}") from exc
+        capture_time_source = FILESYSTEM_CREATED_SOURCE
     return SelectedRunInput(
         course_id=args.course,
         filename=args.filename,
@@ -341,7 +426,36 @@ def _selected_from_args(args: argparse.Namespace) -> SelectedRunInput:
         markers=tuple(_read_marker_csv(args.markers)),
         clip_id=args.clip_id,
         run_date=args.date,
+        capture_time=capture_time,
+        capture_time_source=capture_time_source,
+        source_path=args.source_path,
     )
+
+
+def _media_files_by_name(media_roots: list[Path]) -> dict[str, list[Path]]:
+    by_name: dict[str, list[Path]] = {}
+    for root in media_roots:
+        if not root.exists():
+            raise ValueError(f"media root not found: {root}")
+        if root.is_file():
+            by_name.setdefault(root.name, []).append(root)
+            continue
+        for path in root.rglob("*"):
+            if path.is_file():
+                by_name.setdefault(path.name, []).append(path)
+    return by_name
+
+
+def _matching_media_paths(
+    filename: str,
+    source_path: str | None,
+    media_index: dict[str, list[Path]],
+) -> list[Path]:
+    if source_path:
+        path = Path(source_path)
+        if path.exists() and path.is_file():
+            return [path]
+    return media_index.get(filename, [])
 
 
 def _read_marker_csv(path: str | Path) -> list[RawMarker]:
