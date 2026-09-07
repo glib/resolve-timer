@@ -35,6 +35,36 @@ seconds = frame_delta / source_fps
 
 ## Install For Resolve
 
+### Bazzite / davincibox
+
+From this checkout in a host terminal (or a development Distrobox), run:
+
+```bash
+bash scripts/install-resolve-linux.sh --dry-run
+bash scripts/install-resolve-linux.sh
+```
+
+The installer defaults to the `davincibox` container. Use `--container NAME` for
+a different name and `--python /path/to/python` if Resolve uses a different
+Python interpreter. Python 3.10+ with `venv` and `ensurepip` is required inside
+the container. The checkout must be accessible there at the same absolute path.
+
+Dependencies are downloaded into a temporary environment using the container's
+Python, checked, and installed into `.resolve_deps`. No host system packages are
+installed. The launcher is written under the container user's
+`~/.local/share/DaVinciResolve/Fusion/Scripts/Utility/Resolve Timer` directory.
+Repeat installs preserve your database and preferences; rerun after changing
+the container's Python version or moving the checkout. Keep the checkout in place.
+Avoid running the installer while the timer window is open.
+
+Restart Resolve and select `Resolve Timer` under `Workspace > Scripts`.
+Check `resolve_timer_startup.json` and `resolve_timer.log` in this checkout if
+startup fails. The Python version in startup diagnostics should match the
+installer's output. Installation checks imports and database loading; opening
+the timer and previewing a marked clip in Resolve verifies the UI integration.
+
+### Windows
+
 Run these from the project root in PowerShell:
 
 ```powershell
